@@ -1,0 +1,20 @@
+# Rust
+/target/
+**/*.rs.bk
+Cargo.lock
+
+# Local project scaffolding (PARA working folders — not part of the public crate)
+/working/
+/context/
+/archive/
+/sources/
+/planning/
+/.claude/
+
+# Editor / OS
+.direnv/
+*.swp
+.DS_Store
+
+# Local working notes — not for the public repo
+/CLAUDE.md
