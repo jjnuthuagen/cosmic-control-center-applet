@@ -176,6 +176,14 @@ alongside it is the frosted-glass control.
 Note also that cosmic-panel restarts every applet when the theme changes, so an
 open popup is destroyed rather than restyled.
 
+**No frosted-glass effect?** Blur is gated on theme flags that all default to
+`false`: `frosted_applets` (applet popups — this one), `frosted_panel`,
+`frosted_windows` and `frosted_system_interface`, in
+`com.system76.CosmicTheme.{Dark,Light}` and their `.Builder` siblings. With them
+off you still get transparency, because the panel's `opacity` is plain alpha, so
+it reads as blur that is broken rather than blur that is off. Nothing is needed
+on the applet's side — libcosmic requests the effect itself.
+
 ## Rebuilding onto the panel
 
 Killing the process is **not** enough — cosmic-panel does not respawn a dead
