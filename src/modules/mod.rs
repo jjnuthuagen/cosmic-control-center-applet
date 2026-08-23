@@ -17,6 +17,7 @@ pub mod dns;
 pub mod gamemode;
 pub mod network;
 pub mod system;
+pub mod tiling;
 pub mod volume;
 
 use cosmic::iced::Subscription;

@@ -16,6 +16,8 @@
 //! So heights are *derived* from what they contain ([`tile_height`]), never
 //! written down as a number that can quietly stop being big enough.
 
+pub mod icons;
+
 use cosmic::iced::{Alignment, Background, Border, Color, Length, Padding};
 use cosmic::widget::{
     button, container, icon, progress_bar, row, scrollable, slider, text, toggler, tooltip,
@@ -290,7 +292,7 @@ pub fn page_header<'a, Msg: Clone + 'static>(
         .align_y(Alignment::Center)
         .spacing(spacing.gap)
         .push(
-            button::icon(icon::from_name("go-previous-symbolic").size(ICON_SIZE))
+            button::icon(icon::from_name(icons::back()).size(ICON_SIZE))
                 .padding(spacing.pad_y)
                 .on_press(back),
         )

@@ -23,6 +23,22 @@ fn main() -> cosmic::iced::Result {
         )
         .init();
 
+    // Flipping tiling without a GUI: scriptable, and safe to bind to a key.
+    // It is also how the Wayland write path gets verified, since a hermetic
+    // test cannot talk to a compositor.
+    if std::env::args().skip(1).any(|arg| arg == "--toggle-tiling") {
+        match modules::tiling::toggle_now() {
+            Ok(tiled) => {
+                println!("{}", if tiled { "tiled" } else { "floating" });
+                std::process::exit(0);
+            }
+            Err(err) => {
+                eprintln!("could not toggle tiling: {err}");
+                std::process::exit(2);
+            }
+        }
+    }
+
     // `--check` probes every backend and prints what it found, without opening
     // a surface. See `check.rs` for why an applet needs this.
     if std::env::args().skip(1).any(|arg| arg == "--check") {

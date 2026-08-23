@@ -47,3 +47,7 @@ run:
 # tile is missing.
 check-system:
     cargo run -- --check
+
+# Flip tiling on the current workspace without a GUI. Safe to bind to a key.
+toggle-tiling:
+    {{bin-dst}} --toggle-tiling

@@ -1,4 +1,4 @@
-//! Desktop toggles backed by `cosmic-config`: dark mode and window tiling.
+//! Dark mode, backed by `cosmic-config`.
 //!
 //! # Why these read the config instead of the running theme
 //!
@@ -9,10 +9,14 @@
 //! wrote the same thing again, and appeared to do nothing. The toggle worked
 //! exactly once per theme reload.
 //!
-//! So both toggles read their key fresh at press time and flip *that*. The
+//! So the toggle reads its key fresh at press time and flips *that*. The
 //! displayed state comes from polling the same key, which means an external
 //! change — `cosmic-settings`, another applet, a schedule — is reflected here
 //! too.
+//!
+//! Window tiling used to live here too, over `com.system76.CosmicComp`'s
+//! `autotile`. It does not belong here and that key was the wrong one: see
+//! [`crate::modules::tiling`].
 
 use cosmic::cosmic_config::{Config, ConfigGet, ConfigSet};
 use cosmic::iced::Subscription;
@@ -27,10 +31,6 @@ const KEY_IS_DARK: &str = "is_dark";
 /// A day/night schedule that would otherwise undo a manual choice.
 const KEY_AUTO_SWITCH: &str = "auto_switch";
 
-const COMP_ID: &str = "com.system76.CosmicComp";
-const COMP_VERSION: u64 = 1;
-const KEY_AUTOTILE: &str = "autotile";
-
 /// Fast enough that an external theme change shows up while the popup is open,
 /// slow enough to be nothing. These are small local file reads, not IPC.
 const POLL_INTERVAL: Duration = Duration::from_millis(1500);
@@ -39,23 +39,18 @@ const POLL_INTERVAL: Duration = Duration::from_millis(1500);
 pub struct State {
     pub availability: Availability,
     pub dark: bool,
-    pub tiling: bool,
-    /// False when the compositor config is missing, i.e. not running COSMIC.
-    pub tiling_available: bool,
 }
 
 #[derive(Debug, Clone)]
 pub enum Event {
-    Changed { dark: bool, tiling: Option<bool> },
+    Changed { dark: bool },
 }
 
 impl State {
     pub fn update(&mut self, event: Event) {
-        let Event::Changed { dark, tiling } = event;
+        let Event::Changed { dark } = event;
         self.availability = Availability::Available;
         self.dark = dark;
-        self.tiling_available = tiling.is_some();
-        self.tiling = tiling.unwrap_or(false);
     }
 
     /// Flip dark mode, reading the current value from the config first.
@@ -69,20 +64,10 @@ impl State {
         }
     }
 
-    pub fn toggle_tiling(&mut self) -> impl std::future::Future<Output = ()> {
-        self.tiling = !self.tiling;
-        async move {
-            if let Err(err) = flip_tiling() {
-                tracing::warn!("could not switch window tiling: {err}");
-            }
-        }
-    }
-
     pub fn subscription(&self) -> Subscription<Event> {
         poll_subscription("system-toggles", POLL_INTERVAL, || async {
             Some(Event::Changed {
                 dark: read_dark().unwrap_or(false),
-                tiling: read_tiling(),
             })
         })
     }
@@ -92,16 +77,8 @@ fn theme_config() -> Result<Config, cosmic::cosmic_config::Error> {
     Config::new(THEME_MODE_ID, THEME_MODE_VERSION)
 }
 
-fn comp_config() -> Result<Config, cosmic::cosmic_config::Error> {
-    Config::new(COMP_ID, COMP_VERSION)
-}
-
 fn read_dark() -> Option<bool> {
     theme_config().ok()?.get::<bool>(KEY_IS_DARK).ok()
-}
-
-fn read_tiling() -> Option<bool> {
-    comp_config().ok()?.get::<bool>(KEY_AUTOTILE).ok()
 }
 
 fn flip_dark() -> Result<(), cosmic::cosmic_config::Error> {
@@ -119,25 +96,10 @@ fn flip_dark() -> Result<(), cosmic::cosmic_config::Error> {
     config.set::<bool>(KEY_IS_DARK, !current)
 }
 
-fn flip_tiling() -> Result<(), cosmic::cosmic_config::Error> {
-    let config = comp_config()?;
-    let current = config.get::<bool>(KEY_AUTOTILE).unwrap_or(false);
-    config.set::<bool>(KEY_AUTOTILE, !current)
-}
-
 /// One-shot read for `--check`.
 pub fn probe() -> Result<String, String> {
     let dark = read_dark().ok_or("theme mode config unreadable")?;
-    let tiling = read_tiling();
-    Ok(format!(
-        "theme is {}, tiling {}",
-        if dark { "dark" } else { "light" },
-        match tiling {
-            Some(true) => "on".to_string(),
-            Some(false) => "off".to_string(),
-            None => "unavailable".to_string(),
-        }
-    ))
+    Ok(format!("theme is {}", if dark { "dark" } else { "light" }))
 }
 
 #[cfg(test)]
@@ -145,45 +107,14 @@ mod tests {
     use super::*;
 
     #[test]
-    fn tiling_hides_itself_when_the_compositor_config_is_absent() {
-        // Running the applet outside COSMIC, or before cosmic-comp has written
-        // its defaults. A toggle that writes into nothing is worse than none.
-        let mut state = State::default();
-        state.update(Event::Changed {
-            dark: true,
-            tiling: None,
-        });
-        assert!(state.availability.is_shown());
-        assert!(!state.tiling_available);
-    }
-
-    #[test]
-    fn tiling_state_is_reported_when_present() {
-        let mut state = State::default();
-        state.update(Event::Changed {
-            dark: false,
-            tiling: Some(true),
-        });
-        assert!(state.tiling_available);
-        assert!(state.tiling);
-        assert!(!state.dark);
-    }
-
-    #[test]
     fn toggling_flips_the_displayed_state_immediately() {
         // The poll is up to 1.5s behind; without the optimistic flip the label
         // lags the press badly enough to look broken.
         let mut state = State::default();
-        state.update(Event::Changed {
-            dark: true,
-            tiling: Some(false),
-        });
+        state.update(Event::Changed { dark: true });
 
         let _write = state.toggle_dark();
         assert!(!state.dark);
-
-        let _write = state.toggle_tiling();
-        assert!(state.tiling);
     }
 
     #[test]
@@ -192,10 +123,7 @@ mod tests {
         // that does not update, so every press after the first writes the same
         // thing and nothing happens.
         let mut state = State::default();
-        state.update(Event::Changed {
-            dark: true,
-            tiling: None,
-        });
+        state.update(Event::Changed { dark: true });
 
         let mut seen = Vec::new();
         for _ in 0..4 {
@@ -203,5 +131,10 @@ mod tests {
             seen.push(state.dark);
         }
         assert_eq!(seen, vec![false, true, false, true]);
+    }
+
+    #[test]
+    fn an_unknown_state_is_not_shown_yet() {
+        assert!(!State::default().availability.is_shown());
     }
 }

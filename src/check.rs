@@ -12,7 +12,9 @@
 //! question with an answer.
 
 use crate::config::Config;
-use crate::modules::{battery, bluetooth, brightness, dns, gamemode, network, system, volume};
+use crate::modules::{
+    battery, bluetooth, brightness, dns, gamemode, network, system, tiling, volume,
+};
 
 /// Exit code when at least one enabled module could not be read.
 ///
@@ -93,8 +95,13 @@ pub async fn run() -> i32 {
             result: gamemode::probe().await,
         },
         Report {
+            name: "tiling",
+            enabled: config.modules.tiling,
+            result: tiling::probe(),
+        },
+        Report {
             name: "desktop",
-            enabled: config.modules.dark_mode || config.modules.tiling,
+            enabled: config.modules.dark_mode,
             result: system::probe(),
         },
     ];

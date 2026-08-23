@@ -19,9 +19,11 @@ use cosmic::{Application, Element};
 
 use crate::config::Config;
 use crate::fl;
-use crate::modules::{battery, bluetooth, brightness, dns, gamemode, network, system, volume};
+use crate::modules::{
+    battery, bluetooth, brightness, dns, gamemode, network, system, tiling, volume,
+};
 use crate::ui::{
-    list_row, page_header, scrollable_page, slider_row, tile_grid, toggle_row, Spacing, Tile,
+    icons, list_row, page_header, scrollable_page, slider_row, tile_grid, toggle_row, Spacing, Tile,
 };
 
 /// Wide enough for two tiles plus their state text, narrow enough not to
@@ -84,6 +86,7 @@ pub enum Message {
     Brightness(brightness::Event),
     System(system::Event),
     GameMode(gamemode::Event),
+    Tiling(tiling::Event),
 
     /// A backend write finished. State was updated optimistically, so there is
     /// nothing to do — but the task has to resolve into something.
@@ -104,6 +107,7 @@ pub struct App {
     brightness: brightness::State,
     system: system::State,
     gamemode: gamemode::State,
+    tiling: tiling::State,
 }
 
 impl App {
@@ -144,7 +148,7 @@ impl App {
     }
 
     fn show_tiling(&self) -> bool {
-        self.config.modules.tiling && self.system.tiling_available
+        self.config.modules.tiling && self.tiling.availability.is_shown()
     }
 
     // -- Root -----------------------------------------------------------------
@@ -205,7 +209,7 @@ impl App {
         if self.show_bluetooth() {
             tiles.push(
                 Tile::new(
-                    "bluetooth-symbolic",
+                    icons::bluetooth(self.bluetooth.powered, self.bluetooth.connected_devices),
                     fl!("bluetooth"),
                     self.bluetooth_state_text(),
                 )
@@ -216,7 +220,7 @@ impl App {
         }
         if self.show_battery() {
             let mut tile = Tile::new(
-                "battery-symbolic",
+                icons::battery(self.battery.percent, self.battery.charging),
                 fl!("battery"),
                 self.battery_state_text(),
             );
@@ -232,7 +236,7 @@ impl App {
                 .active()
                 .map_or_else(|| fl!("dns-custom"), provider_label);
             tiles.push(
-                Tile::new("network-server-symbolic", fl!("dns"), state)
+                Tile::new(icons::dns(), fl!("dns"), state)
                     .on_press(Message::Navigate(Page::Dns))
                     .view(spacing),
             );
@@ -244,29 +248,21 @@ impl App {
                 fl!("mode-light")
             };
             tiles.push(
-                Tile::new(
-                    if self.system.dark {
-                        "weather-clear-night-symbolic"
-                    } else {
-                        "weather-clear-symbolic"
-                    },
-                    fl!("dark-mode"),
-                    state,
-                )
-                .active(self.system.dark)
-                .on_press(Message::ToggleDark)
-                .view(spacing),
+                Tile::new(icons::dark_mode(self.system.dark), fl!("dark-mode"), state)
+                    .active(self.system.dark)
+                    .on_press(Message::ToggleDark)
+                    .view(spacing),
             );
         }
         if self.show_tiling() {
-            let state = if self.system.tiling {
+            let state = if self.tiling.tiled {
                 fl!("tiling-on")
             } else {
                 fl!("tiling-off")
             };
             tiles.push(
-                Tile::new("view-grid-symbolic", fl!("tiling"), state)
-                    .active(self.system.tiling)
+                Tile::new(icons::tiling(self.tiling.tiled), fl!("tiling"), state)
+                    .active(self.tiling.tiled)
                     .on_press(Message::ToggleTiling)
                     .view(spacing),
             );
@@ -285,11 +281,7 @@ impl App {
 
         if self.show_volume() {
             content = content.push(slider_row(
-                if self.volume.muted {
-                    "audio-volume-muted-symbolic"
-                } else {
-                    "audio-volume-high-symbolic"
-                },
+                icons::volume(self.volume.percent.unwrap_or(0.0), self.volume.muted),
                 self.volume.percent.unwrap_or(0.0),
                 Message::SetVolume,
                 Some(Message::ToggleMute),
@@ -299,11 +291,10 @@ impl App {
         }
         if self.show_brightness() {
             content = content.push(slider_row(
-                if self.brightness.dimmed {
-                    "display-brightness-low-symbolic"
-                } else {
-                    "display-brightness-symbolic"
-                },
+                icons::brightness(
+                    self.brightness.percent.unwrap_or(0.0),
+                    self.brightness.dimmed,
+                ),
                 self.brightness.percent.unwrap_or(0.0),
                 Message::SetBrightness,
                 Some(Message::ToggleDim),
@@ -328,7 +319,7 @@ impl App {
             ));
 
         content = content.push(toggle_row(
-            "airplane-mode-symbolic",
+            icons::airplane(),
             fl!("airplane-mode"),
             None,
             self.wifi.airplane_mode,
@@ -364,7 +355,7 @@ impl App {
                 };
 
                 content = content.push(list_row(
-                    signal_icon(net.strength, net.secured),
+                    icons::signal(net.strength, net.secured),
                     net.ssid.clone(),
                     detail,
                     net.connected,
@@ -411,7 +402,7 @@ impl App {
                 spacing,
             ))
             .push(toggle_row(
-                "bluetooth-symbolic",
+                icons::bluetooth(self.bluetooth.powered, self.bluetooth.connected_devices),
                 fl!("bluetooth"),
                 None,
                 self.bluetooth.powered,
@@ -440,7 +431,7 @@ impl App {
                 };
 
                 content = content.push(list_row(
-                    "bluetooth-symbolic",
+                    icons::bluetooth(true, usize::from(device.connected)),
                     device.name.clone(),
                     detail,
                     device.connected,
@@ -494,7 +485,7 @@ impl App {
         if self.config.modules.gamemode && self.gamemode.availability.is_shown() {
             content = content.push(divider::horizontal::default());
             content = content.push(toggle_row(
-                "applications-games-symbolic",
+                icons::game_mode(),
                 fl!("game-mode"),
                 Some(if self.gamemode.can_toggle() {
                     fl!("game-mode-detail")
@@ -536,7 +527,7 @@ impl App {
         let active = self.dns.active().cloned();
         for provider in &self.dns.providers {
             content = content.push(list_row(
-                "network-server-symbolic",
+                icons::dns(),
                 provider_label(provider),
                 servers_summary(provider),
                 active.as_ref() == Some(provider),
@@ -638,28 +629,21 @@ fn wifi_error_text(wifi: &network::State) -> Option<String> {
     })
 }
 
+/// The Wi-Fi tile icon, derived from the module's whole state.
 fn wifi_icon(wifi: &network::State) -> &'static str {
-    if wifi.airplane_mode {
-        "airplane-mode-symbolic"
-    } else if !wifi.enabled || wifi.hardware_killed {
-        "network-wireless-disabled-symbolic"
-    } else {
-        "network-wireless-symbolic"
-    }
-}
+    let strength = wifi
+        .connected_ssid
+        .as_ref()
+        .and_then(|ssid| wifi.networks.iter().find(|n| &n.ssid == ssid))
+        .map_or(0, |n| n.strength);
 
-/// Pick the signal-strength icon, matching the names the icon theme ships.
-fn signal_icon(strength: u8, secured: bool) -> &'static str {
-    match (strength, secured) {
-        (80.., true) => "network-wireless-signal-excellent-secure-symbolic",
-        (55..80, true) => "network-wireless-signal-good-secure-symbolic",
-        (30..55, true) => "network-wireless-signal-ok-secure-symbolic",
-        (_, true) => "network-wireless-signal-weak-secure-symbolic",
-        (80.., false) => "network-wireless-signal-excellent-symbolic",
-        (55..80, false) => "network-wireless-signal-good-symbolic",
-        (30..55, false) => "network-wireless-signal-ok-symbolic",
-        (_, false) => "network-wireless-signal-weak-symbolic",
-    }
+    icons::wifi(
+        wifi.airplane_mode,
+        wifi.hardware_killed,
+        wifi.enabled,
+        wifi.connected_ssid.is_some(),
+        strength,
+    )
 }
 
 fn provider_label(provider: &dns::Provider) -> String {
@@ -683,11 +667,11 @@ fn servers_summary(provider: &dns::Provider) -> Option<String> {
 }
 
 fn profile_icon(profile: battery::Profile) -> &'static str {
-    match profile {
-        battery::Profile::PowerSaver => "power-profile-power-saver-symbolic",
-        battery::Profile::Balanced => "power-profile-balanced-symbolic",
-        battery::Profile::Performance => "power-profile-performance-symbolic",
-    }
+    icons::power_profile(match profile {
+        battery::Profile::PowerSaver => icons::PowerProfile::PowerSaver,
+        battery::Profile::Balanced => icons::PowerProfile::Balanced,
+        battery::Profile::Performance => icons::PowerProfile::Performance,
+    })
 }
 
 impl Application for App {
@@ -722,6 +706,7 @@ impl Application for App {
                 brightness: brightness::State::default(),
                 system: system::State::default(),
                 gamemode: gamemode::State::default(),
+                tiling: tiling::State::default(),
             },
             Task::none(),
         )
@@ -816,7 +801,7 @@ impl Application for App {
             },
 
             Message::ToggleDark => run(self.system.toggle_dark()),
-            Message::ToggleTiling => run(self.system.toggle_tiling()),
+            Message::ToggleTiling => run(self.tiling.toggle()),
 
             Message::SetVolume(percent) => run(self.volume.set(percent)),
             Message::ToggleMute => run(self.volume.toggle_mute()),
@@ -882,12 +867,16 @@ impl Application for App {
                 self.gamemode.update(event);
                 Task::none()
             }
+            Message::Tiling(event) => {
+                self.tiling.update(event);
+                Task::none()
+            }
             Message::Done => Task::none(),
         }
     }
 
     fn subscription(&self) -> Subscription<Message> {
-        let mut subscriptions = Vec::with_capacity(8);
+        let mut subscriptions = Vec::with_capacity(9);
         let open = self.popup.is_some();
 
         // A module switched off in config contributes no subscription, so it
@@ -915,8 +904,11 @@ impl Application for App {
         if self.config.modules.brightness && open {
             subscriptions.push(self.brightness.subscription().map(Message::Brightness));
         }
-        if (self.config.modules.dark_mode || self.config.modules.tiling) && open {
+        if self.config.modules.dark_mode && open {
             subscriptions.push(self.system.subscription().map(Message::System));
+        }
+        if self.config.modules.tiling && open {
+            subscriptions.push(self.tiling.subscription().map(Message::Tiling));
         }
         if self.config.modules.gamemode && open {
             subscriptions.push(self.gamemode.subscription().map(Message::GameMode));
@@ -928,7 +920,7 @@ impl Application for App {
     fn view(&self) -> Element<'_, Message> {
         self.core
             .applet
-            .icon_button("preferences-system-symbolic")
+            .icon_button(icons::applet())
             .on_press(Message::TogglePopup)
             .into()
     }
