@@ -58,7 +58,7 @@ Missing hardware or a missing daemon degrades the module gracefully; it never cr
 Requires a Rust toolchain and the COSMIC/libcosmic build dependencies.
 
 ```sh
-git clone https://github.com/<owner>/cosmic-control-center-applet
+git clone https://github.com/jjnuthuagen/cosmic-control-center-applet
 cd cosmic-control-center-applet
 cargo build --release
 ```
