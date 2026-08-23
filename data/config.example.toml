@@ -17,6 +17,7 @@ dns = true
 volume = true
 brightness = true
 dark_mode = true
+tiling = true
 
 [dns]
 # Extra providers, appended after the built-in ones.

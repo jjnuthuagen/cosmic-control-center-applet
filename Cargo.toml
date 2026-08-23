@@ -19,6 +19,12 @@ libcosmic = { git = "https://github.com/pop-os/libcosmic", rev = "ef490df50b0a05
 ] }
 
 zbus = { version = "5", default-features = false, features = ["tokio"] }
+
+# NetworkManager binding. This is the same crate the stock COSMIC network
+# applet uses, and it is MIT -- which matters, because that applet itself is
+# GPL-3.0-or-later and cannot be copied into this MIT/Apache repo. We share
+# their foundation, not their code.
+nmrs = "3.4.0"
 futures = "0.3"
 tokio = { version = "1", features = ["time", "process"] }
 

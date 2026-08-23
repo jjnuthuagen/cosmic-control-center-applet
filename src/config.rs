@@ -26,6 +26,7 @@ pub struct Modules {
     pub volume: bool,
     pub brightness: bool,
     pub dark_mode: bool,
+    pub tiling: bool,
 }
 
 #[derive(Debug, Clone, Default, Deserialize)]
@@ -49,6 +50,7 @@ impl Default for Modules {
             volume: true,
             brightness: true,
             dark_mode: true,
+            tiling: true,
         }
     }
 }

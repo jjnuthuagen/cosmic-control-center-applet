@@ -971,6 +971,7 @@ dependencies = [
  "fluent-bundle",
  "futures",
  "libcosmic",
+ "nmrs",
  "serde",
  "tokio",
  "toml 0.9.12+spec-1.1.0",
@@ -1773,6 +1774,12 @@ name = "futures-task"
 version = "0.3.34"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "cd417de3d1d015fc3bfd2b1ea46dfc7bab72ef86f1cc7cc9c78e728b34a6d1fd"
+
+[[package]]
+name = "futures-timer"
+version = "3.0.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "af43fadb8a98512d547e37b4e92e0ced13e205c061b87b4623eff01d918d6968"
 
 [[package]]
 name = "futures-util"
@@ -3179,6 +3186,26 @@ dependencies = [
 ]
 
 [[package]]
+name = "nmrs"
+version = "3.5.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "84eac3f02c7970440ee58eeedc085b44ea4ad7161d7763457ae2389b415a84c8"
+dependencies = [
+ "async-trait",
+ "base64",
+ "bitflags 2.13.1",
+ "futures",
+ "futures-timer",
+ "log",
+ "serde",
+ "thiserror 2.0.20",
+ "tokio",
+ "uuid",
+ "zbus",
+ "zvariant",
+]
+
+[[package]]
 name = "notify"
 version = "8.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4340,6 +4367,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "sha1_smol"
+version = "1.0.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "bbfa15b3dddfee50a0fff136974b3e1bde555604ba463834a7eb7deb6417705d"
+
+[[package]]
 name = "sha2"
 version = "0.11.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5185,8 +5218,10 @@ version = "1.25.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f053576934f05a761a402421fbbe3d425d9366f75f978806a037b3ca481abecc"
 dependencies = [
+ "getrandom 0.4.3",
  "js-sys",
  "serde_core",
+ "sha1_smol",
  "wasm-bindgen",
 ]
 

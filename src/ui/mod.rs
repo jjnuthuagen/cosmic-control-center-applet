@@ -1,48 +1,44 @@
 //! Shared widgets.
 //!
-//! Nothing in here picks a colour, a radius or a font size by hand. Everything
-//! comes from the active COSMIC theme via `cosmic.spacing` / `cosmic.corner_radii`
-//! so the popup follows the system's light/dark setting and accent colour
-//! without the applet knowing which one is in use.
+//! Nothing here picks a colour, radius or font size by hand. Everything comes
+//! from the active COSMIC theme, so the popup follows the system light/dark
+//! setting and accent colour without knowing which is in use.
+//!
+//! # Grid geometry
+//!
+//! Tiles are a fixed height and share the row's width equally. That is the
+//! whole reason the tile carries no name label: a tile showing "Wi-Fi" above
+//! "HomeNet" is two lines tall, one showing "Battery" above "82% · Balanced" is
+//! two lines of very different width, and the grid ends up ragged. Icon plus
+//! current state is one line of predictable size, and the icon already says
+//! which control it is.
 
-use cosmic::iced::{Alignment, Length};
-use cosmic::widget::{button, column, container, icon, row, slider, text};
-use cosmic::{Apply, Element};
+use cosmic::iced::{Alignment, Background, Border, Color, Length};
+use cosmic::widget::{button, container, icon, row, slider, text};
+use cosmic::{theme, Element};
 
-/// A 1x1 or 2x1 grid tile.
-///
-/// `detail` is the second line — the SSID, the charge, the DNS provider. It is
-/// optional because the quick toggles (Dark Mode) have nothing useful to put
-/// there and a blank second line would make them taller than they need to be.
+/// Every tile is exactly this tall, so rows line up whatever is in them.
+pub const TILE_HEIGHT: f32 = 52.0;
+/// Longest state string a tile will show before ellipsis. Sized for the
+/// narrower of the two columns at the popup's fixed width.
+const MAX_STATE_CHARS: usize = 16;
+
+/// A grid tile: an icon and the thing's current state.
 pub struct Tile<'a, Msg> {
     icon_name: &'a str,
-    label: String,
-    detail: Option<String>,
+    state: String,
     active: bool,
     on_press: Option<Msg>,
-    on_drill_down: Option<Msg>,
 }
 
 impl<'a, Msg: Clone + 'static> Tile<'a, Msg> {
-    pub fn new(icon_name: &'a str, label: impl Into<String>) -> Self {
+    pub fn new(icon_name: &'a str, state: impl Into<String>) -> Self {
         Self {
             icon_name,
-            label: label.into(),
-            detail: None,
+            state: state.into(),
             active: false,
             on_press: None,
-            on_drill_down: None,
         }
-    }
-
-    pub fn detail(mut self, detail: impl Into<String>) -> Self {
-        self.detail = Some(detail.into());
-        self
-    }
-
-    pub fn detail_maybe(mut self, detail: Option<String>) -> Self {
-        self.detail = detail;
-        self
     }
 
     /// Whether the tile reads as "on" — drives the accent fill.
@@ -56,40 +52,27 @@ impl<'a, Msg: Clone + 'static> Tile<'a, Msg> {
         self
     }
 
-    /// Adds the `>` affordance that opens a drill-down page.
-    pub fn on_drill_down(mut self, msg: Msg) -> Self {
-        self.on_drill_down = Some(msg);
-        self
-    }
-
     pub fn view(self, spacing: u16) -> Element<'a, Msg> {
-        let mut label_column = column::with_capacity(2).push(text::body(self.label));
-        if let Some(detail) = self.detail {
-            label_column = label_column.push(text::caption(detail));
-        }
-
-        let content = row::with_capacity(3)
+        let content = row::with_capacity(2)
             .align_y(Alignment::Center)
             .spacing(spacing)
             .push(icon::from_name(self.icon_name).size(20))
-            .push(label_column.width(Length::Fill))
-            .push_maybe(self.on_drill_down.map(|msg| {
-                button::icon(icon::from_name("go-next-symbolic").size(16))
-                    .on_press(msg)
-                    // The arrow is a separate hit target from the toggle: the
-                    // tile body switches the thing on and off, the arrow opens
-                    // its settings. Merging them would make it impossible to
-                    // toggle Wi-Fi without opening the network list.
-                    .apply(Element::from)
-            }));
+            .push(text::body(truncate(&self.state, MAX_STATE_CHARS)).width(Length::Fill));
 
-        let tile = button::custom(container(content).padding(spacing).width(Length::Fill))
-            .class(if self.active {
-                button::ButtonClass::Suggested
-            } else {
-                button::ButtonClass::Standard
-            })
-            .width(Length::Fill);
+        let tile = button::custom(
+            container(content)
+                .padding(spacing)
+                .center_y(Length::Fill)
+                .width(Length::Fill)
+                .height(Length::Fill),
+        )
+        .class(if self.active {
+            button::ButtonClass::Suggested
+        } else {
+            button::ButtonClass::Standard
+        })
+        .width(Length::Fill)
+        .height(Length::Fixed(TILE_HEIGHT));
 
         match self.on_press {
             Some(msg) => tile.on_press(msg).into(),
@@ -98,12 +81,62 @@ impl<'a, Msg: Clone + 'static> Tile<'a, Msg> {
     }
 }
 
-/// An icon plus a full-width slider, used for volume and brightness.
+/// A placeholder occupying a grid cell that has no tile in it.
 ///
-/// `on_release` exists so the caller can distinguish "the user is dragging"
-/// from "the user has settled". Writing on every drag frame floods the backend;
-/// writing only on release makes the screen or the audio lag behind the handle.
-/// Both are wired up, and the modules debounce by writing optimistically.
+/// Used only to keep a row square when an odd number of tiles is showing. It is
+/// deliberately not interactive and carries no label: it says "the grid is this
+/// wide" and nothing more. A ghost per hidden module would put permanent holes
+/// in the popup on machines that simply lack the hardware.
+pub fn ghost_tile<'a, Msg: 'a>() -> Element<'a, Msg> {
+    container(cosmic::widget::Space::new())
+        .width(Length::Fill)
+        .height(Length::Fixed(TILE_HEIGHT))
+        .class(theme::Container::Custom(Box::new(|theme| {
+            let cosmic = theme.cosmic();
+            // A faint wash of the foreground colour: visible enough to read as
+            // a slot, far too faint to compete with a real tile.
+            let mut fill = cosmic.on_bg_color();
+            fill.alpha = 0.04;
+            let mut edge = cosmic.on_bg_color();
+            edge.alpha = 0.10;
+
+            container::Style {
+                background: Some(Background::Color(Color::from(fill))),
+                border: Border {
+                    radius: cosmic.corner_radii.radius_s.into(),
+                    width: 1.0,
+                    color: Color::from(edge),
+                },
+                ..Default::default()
+            }
+        })))
+        .into()
+}
+
+/// Lay tiles out two to a row, padding an odd count with a ghost so the last
+/// row stays square.
+pub fn tile_grid<'a, Msg: Clone + 'a>(
+    tiles: Vec<Element<'a, Msg>>,
+    spacing: u16,
+) -> Vec<Element<'a, Msg>> {
+    let mut rows = Vec::with_capacity(tiles.len().div_ceil(2));
+    let mut tiles = tiles.into_iter();
+
+    while let Some(left) = tiles.next() {
+        let right = tiles.next().unwrap_or_else(ghost_tile);
+        rows.push(
+            row::with_capacity(2)
+                .spacing(spacing)
+                .push(container(left).width(Length::FillPortion(1)))
+                .push(container(right).width(Length::FillPortion(1)))
+                .into(),
+        );
+    }
+
+    rows
+}
+
+/// An icon plus a full-width slider, used for volume and brightness.
 pub fn slider_row<'a, Msg: Clone + 'static>(
     icon_name: &'a str,
     value: f64,
@@ -142,4 +175,84 @@ pub fn page_header<'a, Msg: Clone + 'static>(
         .push(button::icon(icon::from_name("go-previous-symbolic").size(16)).on_press(back))
         .push(text::heading(title.into()))
         .into()
+}
+
+/// A full-width row inside a drill-down list.
+pub fn list_row<'a, Msg: Clone + 'static>(
+    icon_name: &'a str,
+    label: impl Into<String>,
+    detail: Option<String>,
+    selected: bool,
+    on_press: Option<Msg>,
+    spacing: u16,
+) -> Element<'a, Msg> {
+    let mut labels = cosmic::widget::column::with_capacity(2).push(text::body(label.into()));
+    if let Some(detail) = detail {
+        labels = labels.push(text::caption(detail));
+    }
+
+    let content = row::with_capacity(3)
+        .align_y(Alignment::Center)
+        .spacing(spacing)
+        .push(icon::from_name(icon_name).size(18))
+        .push(labels.width(Length::Fill));
+
+    let widget = button::custom(container(content).padding(spacing).width(Length::Fill))
+        .class(if selected {
+            button::ButtonClass::Suggested
+        } else {
+            button::ButtonClass::Standard
+        })
+        .width(Length::Fill);
+
+    match on_press {
+        Some(msg) => widget.on_press(msg).into(),
+        None => widget.into(),
+    }
+}
+
+/// Shorten `text` to `max` characters, appending an ellipsis.
+///
+/// Counts characters rather than bytes so a multi-byte SSID is not cut mid-
+/// codepoint, which would panic on the slice.
+fn truncate(text: &str, max: usize) -> String {
+    if text.chars().count() <= max {
+        return text.to_string();
+    }
+    // Leave room for the ellipsis so the result is never wider than `max`.
+    let keep = max.saturating_sub(1);
+    text.chars().take(keep).collect::<String>() + "…"
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn short_text_is_left_alone() {
+        assert_eq!(truncate("HomeNet", 16), "HomeNet");
+        assert_eq!(truncate("exactly-sixteen!", 16), "exactly-sixteen!");
+    }
+
+    #[test]
+    fn long_text_is_shortened_within_the_limit() {
+        let out = truncate("BT-HomeHub-2.4GHz-Extended", 16);
+        assert_eq!(out.chars().count(), 16);
+        assert!(out.ends_with('…'));
+    }
+
+    #[test]
+    fn multibyte_text_is_not_cut_mid_character() {
+        // Byte slicing here would panic; SSIDs and device names are arbitrary
+        // UTF-8 and users really do use emoji in them.
+        let out = truncate("café-café-café-café-café", 8);
+        assert_eq!(out.chars().count(), 8);
+        assert!(out.ends_with('…'));
+    }
+
+    #[test]
+    fn a_tiny_limit_does_not_underflow() {
+        assert_eq!(truncate("abcdef", 1), "…");
+        assert_eq!(truncate("abcdef", 0), "…");
+    }
 }

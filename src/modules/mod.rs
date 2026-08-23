@@ -15,6 +15,7 @@ pub mod bluetooth;
 pub mod brightness;
 pub mod dns;
 pub mod network;
+pub mod system;
 pub mod volume;
 
 use cosmic::iced::Subscription;
