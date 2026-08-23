@@ -23,6 +23,9 @@ const SUBSYSTEM: &str = "backlight";
 /// user and leaves them unable to find the slider to undo it.
 const MIN_PERCENT: f64 = 1.0;
 
+/// Where undimming lands if the remembered level was lost.
+const DEFAULT_RESTORE_PERCENT: f64 = 50.0;
+
 #[zbus::proxy(
     interface = "org.freedesktop.login1.Session",
     default_service = "org.freedesktop.login1",
@@ -39,6 +42,10 @@ pub struct State {
     pub availability: Availability,
     /// 0.0..=100.0, or `None` until the first sample arrives.
     pub percent: Option<f64>,
+    /// Dimmed to minimum by pressing the icon, mirroring mute for volume.
+    pub dimmed: bool,
+    /// Level to come back to when undimming.
+    restore: Option<f64>,
     device: Option<Device>,
 }
 
@@ -71,6 +78,8 @@ impl State {
             Event::Sampled(None) => {
                 self.availability = Availability::Unavailable;
                 self.percent = None;
+                self.dimmed = false;
+                self.restore = None;
                 self.device = None;
             }
         }
@@ -82,6 +91,12 @@ impl State {
     /// round-trip before moving the handle makes dragging feel broken.
     pub fn set(&mut self, percent: f64) -> Option<impl std::future::Future<Output = ()>> {
         let device = self.device.clone().or_else(discover)?;
+        // Setting a level above the floor by any route means we are no longer
+        // dimmed; otherwise the icon would still claim to be holding the screen
+        // down while the slider says otherwise.
+        if percent > MIN_PERCENT {
+            self.dimmed = false;
+        }
         let percent = percent.clamp(MIN_PERCENT, 100.0);
         self.percent = Some(percent);
         self.device = Some(device.clone());
@@ -95,6 +110,26 @@ impl State {
                 tracing::warn!("could not set brightness: {err}");
             }
         })
+    }
+
+    /// Drop to minimum, or return to the level before that.
+    ///
+    /// The counterpart of mute on the volume row: one press to get the screen
+    /// out of the way, one press to get it back. Without remembering the old
+    /// level, undimming would have to guess, and any guess is wrong.
+    pub fn toggle_dim(&mut self) -> Option<impl std::future::Future<Output = ()>> {
+        let target = if self.dimmed {
+            // Fall back to a usable level rather than to nothing if the stored
+            // value went missing — never leave the user on a black screen with a
+            // dead toggle.
+            self.restore.take().unwrap_or(DEFAULT_RESTORE_PERCENT)
+        } else {
+            self.restore = self.percent;
+            MIN_PERCENT
+        };
+
+        self.dimmed = !self.dimmed;
+        self.set(target)
     }
 
     pub fn subscription(&self) -> Subscription<Event> {
@@ -176,6 +211,53 @@ pub fn probe() -> Result<String, String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn dimmable() -> State {
+        State {
+            availability: Availability::Available,
+            percent: Some(70.0),
+            device: Some(Device {
+                name: "test0".into(),
+                max: 100,
+            }),
+            ..State::default()
+        }
+    }
+
+    #[test]
+    fn dimming_remembers_the_previous_level() {
+        let mut state = dimmable();
+        let _write = state.toggle_dim();
+        assert!(state.dimmed);
+        assert_eq!(state.percent, Some(MIN_PERCENT));
+
+        let _write = state.toggle_dim();
+        assert!(!state.dimmed);
+        assert_eq!(state.percent, Some(70.0));
+    }
+
+    #[test]
+    fn undimming_without_a_remembered_level_still_lights_the_screen() {
+        // The alternative is restoring to None, leaving a black screen and a
+        // toggle that appears to do nothing.
+        let mut state = dimmable();
+        state.dimmed = true;
+        state.restore = None;
+
+        let _write = state.toggle_dim();
+        assert!(!state.dimmed);
+        assert_eq!(state.percent, Some(DEFAULT_RESTORE_PERCENT));
+    }
+
+    #[test]
+    fn dragging_the_slider_clears_the_dim_state() {
+        let mut state = dimmable();
+        let _write = state.toggle_dim();
+        assert!(state.dimmed);
+
+        let _write = state.set(40.0);
+        assert!(!state.dimmed);
+    }
 
     #[test]
     fn percent_round_trips_through_raw() {

@@ -17,7 +17,9 @@
 //! written down as a number that can quietly stop being big enough.
 
 use cosmic::iced::{Alignment, Background, Border, Color, Length, Padding};
-use cosmic::widget::{button, container, icon, row, scrollable, slider, text, tooltip};
+use cosmic::widget::{
+    button, container, icon, progress_bar, row, scrollable, slider, text, toggler, tooltip,
+};
 use cosmic::{theme, Element};
 
 /// Icon size inside a tile and a list row.
@@ -191,11 +193,18 @@ pub fn tile_grid<'a, Msg: Clone + 'a>(
 }
 
 /// An icon plus a full-width slider, used for volume and brightness.
+///
+/// When `enabled` is false the slider is replaced by an inert progress bar
+/// rather than a styled-grey slider. That is deliberate: a disabled-looking
+/// slider that still moves under the cursor is worse than one that plainly does
+/// not respond, and iced's slider always takes a change handler, so "disabled"
+/// would otherwise mean "still draggable, just painted differently".
 pub fn slider_row<'a, Msg: Clone + 'static>(
     icon_name: &'a str,
     value: f64,
     on_change: impl Fn(f64) -> Msg + 'a,
     on_icon_press: Option<Msg>,
+    enabled: bool,
     spacing: Spacing,
 ) -> Element<'a, Msg> {
     let leading: Element<'a, Msg> = match on_icon_press {
@@ -208,20 +217,66 @@ pub fn slider_row<'a, Msg: Clone + 'static>(
             .into(),
     };
 
+    let track: Element<'a, Msg> = if enabled {
+        slider(0.0..=100.0, value, on_change)
+            .step(1.0)
+            .width(Length::Fill)
+            .into()
+    } else {
+        // Still shows where the level *was*, so turning it back on is not a
+        // surprise, but takes no input.
+        progress_bar::determinate_linear((value / 100.0) as f32)
+            .width(Length::Fill)
+            .into()
+    };
+
     container(
         row::with_capacity(2)
             .align_y(Alignment::Center)
             .spacing(spacing.gap)
             .push(leading)
-            .push(
-                slider(0.0..=100.0, value, on_change)
-                    .step(1.0)
-                    .width(Length::Fill),
-            ),
+            .push(track),
     )
     // Sliders sit next to tiles that have their own inset; without matching
     // horizontal padding the track runs wider than everything above it.
     .padding(Padding::from([0, spacing.pad_x]))
+    .into()
+}
+
+/// A row whose control is an actual switch.
+///
+/// Used for the on/off at the top of a page. A tinted full-width button reads as
+/// "an item that is selected", which is right for picking one of several power
+/// profiles and wrong for a thing that is simply on or off — and it looked
+/// identical to the list rows underneath it.
+pub fn toggle_row<'a, Msg: Clone + 'static>(
+    icon_name: &'a str,
+    label: impl Into<String>,
+    detail: Option<String>,
+    value: bool,
+    on_toggle: Option<Msg>,
+    spacing: Spacing,
+) -> Element<'a, Msg> {
+    let mut labels = cosmic::widget::column::with_capacity(2).push(text::body(label.into()));
+    if let Some(detail) = detail {
+        labels = labels.push(text::caption(detail));
+    }
+
+    let mut switch = toggler(value);
+    if let Some(msg) = on_toggle {
+        switch = switch.on_toggle(move |_| msg.clone());
+    }
+
+    container(
+        row::with_capacity(3)
+            .align_y(Alignment::Center)
+            .spacing(spacing.gap)
+            .push(icon::from_name(icon_name).size(ICON_SIZE))
+            .push(labels.width(Length::Fill))
+            .push(switch),
+    )
+    .padding(spacing.padding())
+    .width(Length::Fill)
     .into()
 }
 

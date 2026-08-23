@@ -12,7 +12,7 @@
 //! question with an answer.
 
 use crate::config::Config;
-use crate::modules::{battery, bluetooth, brightness, dns, network, system, volume};
+use crate::modules::{battery, bluetooth, brightness, dns, gamemode, network, system, volume};
 
 /// Exit code when at least one enabled module could not be read.
 ///
@@ -86,6 +86,11 @@ pub async fn run() -> i32 {
             name: "brightness",
             enabled: config.modules.brightness,
             result: brightness::probe(),
+        },
+        Report {
+            name: "gamemode",
+            enabled: config.modules.gamemode,
+            result: gamemode::probe().await,
         },
         Report {
             name: "desktop",

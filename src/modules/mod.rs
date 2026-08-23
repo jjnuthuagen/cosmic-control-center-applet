@@ -14,6 +14,7 @@ pub mod battery;
 pub mod bluetooth;
 pub mod brightness;
 pub mod dns;
+pub mod gamemode;
 pub mod network;
 pub mod system;
 pub mod volume;

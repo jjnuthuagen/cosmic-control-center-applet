@@ -6,6 +6,8 @@ description = "A COSMIC panel applet for Wi-Fi, Bluetooth, power profiles, DNS, 
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/jjnuthuagen/cosmic-control-center-applet"
 readme = "README.md"
+# CI builds on latest stable; this is the floor, not the target.
+rust-version = "1.85"
 
 [dependencies]
 # Pinned to the same revision as a known-good local applet. libcosmic is

@@ -27,6 +27,7 @@ pub struct Modules {
     pub brightness: bool,
     pub dark_mode: bool,
     pub tiling: bool,
+    pub gamemode: bool,
 }
 
 #[derive(Debug, Clone, Default, Deserialize)]
@@ -51,6 +52,7 @@ impl Default for Modules {
             brightness: true,
             dark_mode: true,
             tiling: true,
+            gamemode: true,
         }
     }
 }

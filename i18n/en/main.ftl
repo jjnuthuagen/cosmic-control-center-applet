@@ -57,6 +57,9 @@ profile-power-saver = Power Saver
 profile-balanced = Balanced
 profile-performance = Performance
 performance-degraded = Performance limited: { $reason }
+game-mode = Game Mode
+game-mode-detail = Feral GameMode
+game-mode-held = Held on by a running game
 
 # -- DNS ----------------------------------------------------------------------
 dns = DNS

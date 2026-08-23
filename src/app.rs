@@ -19,8 +19,10 @@ use cosmic::{Application, Element};
 
 use crate::config::Config;
 use crate::fl;
-use crate::modules::{battery, bluetooth, brightness, dns, network, system, volume};
-use crate::ui::{list_row, page_header, scrollable_page, slider_row, tile_grid, Spacing, Tile};
+use crate::modules::{battery, bluetooth, brightness, dns, gamemode, network, system, volume};
+use crate::ui::{
+    list_row, page_header, scrollable_page, slider_row, tile_grid, toggle_row, Spacing, Tile,
+};
 
 /// Wide enough for two tiles plus their state text, narrow enough not to
 /// dominate the screen. Public because `ui` sizes its text elision against it.
@@ -66,6 +68,8 @@ pub enum Message {
     SetVolume(f64),
     ToggleMute,
     SetBrightness(f64),
+    ToggleDim,
+    ToggleGameMode,
 
     SetProfile(battery::Profile),
     SelectDnsProvider(dns::Provider),
@@ -79,6 +83,7 @@ pub enum Message {
     Volume(volume::Event),
     Brightness(brightness::Event),
     System(system::Event),
+    GameMode(gamemode::Event),
 
     /// A backend write finished. State was updated optimistically, so there is
     /// nothing to do — but the task has to resolve into something.
@@ -98,6 +103,7 @@ pub struct App {
     volume: volume::State,
     brightness: brightness::State,
     system: system::State,
+    gamemode: gamemode::State,
 }
 
 impl App {
@@ -287,15 +293,21 @@ impl App {
                 self.volume.percent.unwrap_or(0.0),
                 Message::SetVolume,
                 Some(Message::ToggleMute),
+                !self.volume.muted,
                 spacing,
             ));
         }
         if self.show_brightness() {
             content = content.push(slider_row(
-                "display-brightness-symbolic",
+                if self.brightness.dimmed {
+                    "display-brightness-low-symbolic"
+                } else {
+                    "display-brightness-symbolic"
+                },
                 self.brightness.percent.unwrap_or(0.0),
                 Message::SetBrightness,
-                None,
+                Some(Message::ToggleDim),
+                !self.brightness.dimmed,
                 spacing,
             ));
         }
@@ -315,7 +327,7 @@ impl App {
                 spacing,
             ));
 
-        content = content.push(list_row(
+        content = content.push(toggle_row(
             "airplane-mode-symbolic",
             fl!("airplane-mode"),
             None,
@@ -398,7 +410,7 @@ impl App {
                 Message::Navigate(Page::Root),
                 spacing,
             ))
-            .push(list_row(
+            .push(toggle_row(
                 "bluetooth-symbolic",
                 fl!("bluetooth"),
                 None,
@@ -474,6 +486,29 @@ impl App {
                 "performance-degraded",
                 reason = reason.clone()
             )));
+        }
+
+        // GameMode sits below the profiles with a divider, not among them. It is
+        // a separate daemon and orthogonal to the profile — you can run it on
+        // Balanced — so listing it as a fourth profile would misrepresent it.
+        if self.config.modules.gamemode && self.gamemode.availability.is_shown() {
+            content = content.push(divider::horizontal::default());
+            content = content.push(toggle_row(
+                "applications-games-symbolic",
+                fl!("game-mode"),
+                Some(if self.gamemode.can_toggle() {
+                    fl!("game-mode-detail")
+                } else {
+                    // A game is holding it on; say so rather than showing a
+                    // switch that refuses to move.
+                    fl!("game-mode-held")
+                }),
+                self.gamemode.active,
+                self.gamemode
+                    .can_toggle()
+                    .then_some(Message::ToggleGameMode),
+                spacing,
+            ));
         }
 
         content.into()
@@ -686,6 +721,7 @@ impl Application for App {
                 volume: volume::State::default(),
                 brightness: brightness::State::default(),
                 system: system::State::default(),
+                gamemode: gamemode::State::default(),
             },
             Task::none(),
         )
@@ -788,6 +824,14 @@ impl Application for App {
                 Some(future) => run(future),
                 None => Task::none(),
             },
+            Message::ToggleDim => match self.brightness.toggle_dim() {
+                Some(future) => run(future),
+                None => Task::none(),
+            },
+            Message::ToggleGameMode => match self.gamemode.toggle() {
+                Some(future) => run(future),
+                None => Task::none(),
+            },
 
             Message::SetProfile(profile) => run(self.battery.set_profile(profile)),
             Message::SelectDnsProvider(provider) => {
@@ -834,12 +878,16 @@ impl Application for App {
                 self.system.update(event);
                 Task::none()
             }
+            Message::GameMode(event) => {
+                self.gamemode.update(event);
+                Task::none()
+            }
             Message::Done => Task::none(),
         }
     }
 
     fn subscription(&self) -> Subscription<Message> {
-        let mut subscriptions = Vec::with_capacity(7);
+        let mut subscriptions = Vec::with_capacity(8);
         let open = self.popup.is_some();
 
         // A module switched off in config contributes no subscription, so it
@@ -869,6 +917,9 @@ impl Application for App {
         }
         if (self.config.modules.dark_mode || self.config.modules.tiling) && open {
             subscriptions.push(self.system.subscription().map(Message::System));
+        }
+        if self.config.modules.gamemode && open {
+            subscriptions.push(self.gamemode.subscription().map(Message::GameMode));
         }
 
         Subscription::batch(subscriptions)

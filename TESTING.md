@@ -19,6 +19,7 @@ modules:
   dns         ok       HomeNet: automatic (DHCP)
   volume      ok       Wpctl, 45%
   brightness  ok       intel_backlight (max 19200), currently 60%
+  gamemode    ok       0 client(s) registered, idle
   desktop     ok       theme is dark, tiling on
 ```
 
@@ -36,7 +37,11 @@ Please paste its output into any bug report.
 just verify     # cargo fmt --all, clippy -D warnings, cargo test
 ```
 
-Exactly what CI runs, so green locally means green on a pull request.
+Exactly what CI runs — but **necessary, not sufficient**. CI uses the latest
+stable Rust; a distro toolchain a release behind will miss lints CI enforces.
+That has already happened once: `clippy::result_large_err` fired on 1.98 and not
+on the 1.97 package, so three pushes went out with red CI while `just verify` was
+green locally. If they disagree, believe CI.
 
 The unit tests cover the parts that are worth pinning down: security-kind
 decisions for a network, per-SSID collapsing, address encoding, output parsing
@@ -55,6 +60,8 @@ specific regressions listed below. They do **not** cover layout — see section 
 | `multibyte_text_is_not_cut_mid_character` | A panic when eliding an SSID containing non-ASCII characters. |
 | `automatic_clears_the_override` | Leaving `ignore-auto-dns` set, suppressing DHCP resolvers while offering none. |
 | `an_unknown_enterprise_network_is_not_offered_a_password_box` | A password field that cannot possibly work for 802.1X. |
+| `undimming_without_a_remembered_level_still_lights_the_screen` | Restoring brightness to nothing, leaving a black screen and a dead toggle. |
+| `a_game_holding_gamemode_cannot_be_switched_off_here` | The applet yanking GameMode out from under a running game. |
 
 ## 3. Manual checklist — the UI
 
@@ -80,12 +87,15 @@ tiles, the ghost slot and the accent fill are all theme-derived.
 - [ ] Volume and brightness handles sit at the current value on open.
 - [ ] Dragging is smooth and the effect follows immediately.
 - [ ] Brightness never reaches fully black.
-- [ ] Pressing the speaker icon mutes and unmutes, and the icon changes.
-- [ ] Dragging volume up from zero while muted unmutes.
+- [ ] Pressing the speaker icon mutes; the track goes inert and cannot be dragged.
+- [ ] Pressing it again unmutes and the slider becomes draggable at the old level.
+- [ ] Pressing the brightness icon drops to minimum and makes that track inert too.
+- [ ] Pressing it again returns to the level it was at before.
 - [ ] Changing volume with the keyboard keys updates the slider within ~1s.
 
 ### Wi-Fi page
 - [ ] Back returns to the grid.
+- [ ] Airplane mode and Wi-Fi are switches, visibly different from the list rows below.
 - [ ] Airplane mode toggles, and the Wi-Fi row disappears while it is on.
 - [ ] Turning the radio off empties the list; turning it on repopulates within a few seconds.
 - [ ] Networks are sorted connected first, then known, then by strength.
@@ -99,6 +109,7 @@ tiles, the ghost slot and the accent fill are all theme-derived.
 - [ ] With many networks in range the page scrolls and nothing is cut off.
 
 ### Bluetooth page
+- [ ] The adapter control is a switch, not a tinted button.
 - [ ] Adapter switch turns the radio on and off.
 - [ ] Powering off empties the device list.
 - [ ] Paired devices connect and disconnect on tap.
@@ -107,6 +118,9 @@ tiles, the ghost slot and the accent fill are all theme-derived.
 
 ### Battery and DNS pages
 - [ ] Only profiles the daemon actually supports are listed.
+- [ ] Game Mode appears below a divider, separate from the profiles, when gamemoded is installed.
+- [ ] Toggling Game Mode on and off works, and `--check` reports the client count changing.
+- [ ] Launching a game with `gamemoderun` shows Game Mode on and the switch disabled.
 - [ ] Selecting a profile marks it immediately and it survives reopening.
 - [ ] A degraded-performance reason appears when the daemon reports one.
 - [ ] Selecting a DNS provider marks it and changes the tile's state text.

@@ -18,6 +18,8 @@ volume = true
 brightness = true
 dark_mode = true
 tiling = true
+# Feral GameMode, shown on the power page when gamemoded is installed.
+gamemode = true
 
 [dns]
 # Extra providers, appended after the built-in ones.

@@ -365,14 +365,22 @@ fn watch(id: &'static str, interval: Duration, scan: bool) -> Subscription<Event
     })
 }
 
-async fn snapshot(manager: &nmrs::NetworkManager) -> nmrs::Result<Snapshot> {
-    let radios = manager.airplane_mode_state().await?;
+/// Read everything the Wi-Fi module displays.
+///
+/// The error is a `String` rather than `nmrs::ConnectionError` on purpose: that
+/// type is 136 bytes, which makes every `Result` carrying it large enough for
+/// clippy to object, and no caller here does anything with it but log.
+async fn snapshot(manager: &nmrs::NetworkManager) -> Result<Snapshot, String> {
+    let radios = manager
+        .airplane_mode_state()
+        .await
+        .map_err(|err| err.to_string())?;
     let wifi = radios.wifi;
 
     // No wireless hardware at all: report the module unavailable rather than
     // drawing a permanently-off toggle on a desktop.
     if !wifi.present {
-        return Err(nmrs::ConnectionError::NoWifiDevice);
+        return Err("no wireless device on this machine".to_string());
     }
 
     let mut snapshot = Snapshot {
@@ -476,18 +484,22 @@ async fn join(ssid: &str, password: Option<String>) -> Result<(), Error> {
         .map_err(classify)
 }
 
-async fn set_wireless(enabled: bool) -> nmrs::Result<()> {
+async fn set_wireless(enabled: bool) -> Result<(), String> {
     nmrs::NetworkManager::new()
-        .await?
+        .await
+        .map_err(|err| err.to_string())?
         .set_wireless_enabled(enabled)
         .await
+        .map_err(|err| err.to_string())
 }
 
-async fn set_airplane(enabled: bool) -> nmrs::Result<()> {
+async fn set_airplane(enabled: bool) -> Result<(), String> {
     nmrs::NetworkManager::new()
-        .await?
+        .await
+        .map_err(|err| err.to_string())?
         .set_airplane_mode(enabled)
         .await
+        .map_err(|err| err.to_string())
 }
 
 fn classify(err: nmrs::ConnectionError) -> Error {
@@ -521,7 +533,7 @@ pub async fn probe() -> Result<String, String> {
         tokio::time::sleep(Duration::from_secs(3)).await;
     }
 
-    let snapshot = snapshot(&manager).await.map_err(|err| format!("{err}"))?;
+    let snapshot = snapshot(&manager).await.map_err(|err| err.to_string())?;
 
     Ok(format!(
         "radio {}{}{}, {} network(s) visible, connected to {}",

@@ -17,7 +17,7 @@ build:
     cargo build --release
 
 check:
-    cargo clippy --all-targets -- -D warnings
+    cargo clippy --all-targets --locked -- -D warnings
 
 fmt:
     cargo fmt --all
@@ -25,7 +25,9 @@ fmt:
 test:
     cargo test
 
-# Everything CI runs, so a green local run means a green PR.
+# Everything CI runs. Note this is necessary but not sufficient: CI uses the
+# latest stable Rust, and a distro toolchain that is a release behind will miss
+# lints CI enforces. If `verify` is green and CI is not, believe CI.
 verify: fmt check test
 
 install: build
