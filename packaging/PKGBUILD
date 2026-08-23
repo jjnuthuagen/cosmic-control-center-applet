@@ -1,0 +1,67 @@
+# Maintainer: James John <james.john.nuthall@gmail.com>
+pkgname=cosmic-control-center-applet
+pkgver=0.1.0
+pkgrel=1
+pkgdesc="A COSMIC panel applet for Wi-Fi, Bluetooth, power profiles, DNS, volume and brightness"
+arch=('x86_64' 'aarch64')
+url="https://github.com/jjnuthuagen/cosmic-control-center-applet"
+license=('MIT' 'Apache-2.0')
+
+# Only what the applet links against. Everything it *talks to* is a runtime
+# service it discovers over D-Bus, and each module hides itself when its service
+# is absent — so those belong in optdepends, not depends. Putting NetworkManager
+# in depends would force it onto a desktop that only wants the volume slider.
+depends=('wayland' 'libxkbcommon' 'gcc-libs' 'glibc')
+makedepends=('cargo' 'git')
+optdepends=(
+    'networkmanager: Wi-Fi and DNS tiles'
+    'bluez: Bluetooth tile'
+    'power-profiles-daemon: power profile switching'
+    'upower: battery percentage'
+    'wireplumber: volume slider'
+    'libpulse: volume slider fallback via pactl'
+)
+
+source=("$pkgname-$pkgver.tar.gz::$url/archive/refs/tags/v$pkgver.tar.gz")
+sha256sums=('SKIP')
+
+prepare() {
+    cd "$pkgname-$pkgver"
+    # Vendor up front so build() can run with the network off, which is what
+    # makepkg does in a clean chroot.
+    export RUSTUP_TOOLCHAIN=stable
+    cargo fetch --locked --target "$(rustc -vV | sed -n 's/host: //p')"
+}
+
+build() {
+    cd "$pkgname-$pkgver"
+    export RUSTUP_TOOLCHAIN=stable
+    export CARGO_TARGET_DIR=target
+    cargo build --frozen --release --all-features
+}
+
+check() {
+    cd "$pkgname-$pkgver"
+    export RUSTUP_TOOLCHAIN=stable
+    # Every test is hermetic — no test touches D-Bus, sysfs or the network — so
+    # this is safe in a build chroot. Use `--check` after installing to probe
+    # the real machine.
+    cargo test --frozen --release
+}
+
+package() {
+    cd "$pkgname-$pkgver"
+
+    install -Dm0755 "target/release/$pkgname" "$pkgdir/usr/bin/$pkgname"
+    install -Dm0644 \
+        "data/dev.jamesjohn.CosmicControlCenter.desktop" \
+        "$pkgdir/usr/share/applications/dev.jamesjohn.CosmicControlCenter.desktop"
+
+    install -Dm0644 "data/config.example.toml" \
+        "$pkgdir/usr/share/doc/$pkgname/config.example.toml"
+    install -Dm0644 README.md "$pkgdir/usr/share/doc/$pkgname/README.md"
+    install -Dm0644 TESTING.md "$pkgdir/usr/share/doc/$pkgname/TESTING.md"
+
+    install -Dm0644 LICENSE-MIT "$pkgdir/usr/share/licenses/$pkgname/LICENSE-MIT"
+    install -Dm0644 LICENSE-APACHE "$pkgdir/usr/share/licenses/$pkgname/LICENSE-APACHE"
+}

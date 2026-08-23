@@ -1,0 +1,103 @@
+name: release
+
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: write
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # libcosmic pulls in the system graphics and Wayland stack; without these
+      # the build fails at link time with errors that look unrelated to the code.
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libxkbcommon-dev \
+            libwayland-dev \
+            libudev-dev \
+            libinput-dev \
+            libseat-dev \
+            libgbm-dev \
+            libegl1-mesa-dev \
+            libssl-dev \
+            pkg-config
+
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+
+      # A tag that cannot pass its own tests should not become a release.
+      - name: Tests
+        run: cargo test --locked
+
+      - name: Build
+        run: cargo build --release --locked
+
+      - name: Stage the tarball
+        run: |
+          set -euo pipefail
+          version="${GITHUB_REF_NAME#v}"
+          stage="cosmic-control-center-applet-${version}-x86_64-linux"
+          mkdir -p "$stage"
+
+          cp target/release/cosmic-control-center-applet "$stage/"
+          cp data/dev.jamesjohn.CosmicControlCenter.desktop "$stage/"
+          cp data/config.example.toml "$stage/"
+          cp README.md TESTING.md LICENSE-MIT LICENSE-APACHE "$stage/"
+
+          cat > "$stage/install.sh" <<'INSTALL'
+          #!/bin/sh
+          # Installs into ~/.local, so no root is needed.
+          set -eu
+          here=$(cd "$(dirname "$0")" && pwd)
+          prefix="${PREFIX:-$HOME/.local}"
+
+          install -Dm0755 "$here/cosmic-control-center-applet" \
+              "$prefix/bin/cosmic-control-center-applet"
+          install -Dm0644 "$here/dev.jamesjohn.CosmicControlCenter.desktop" \
+              "$prefix/share/applications/dev.jamesjohn.CosmicControlCenter.desktop"
+
+          echo "Installed to $prefix."
+          echo
+          echo "Check your machine's backends:"
+          echo "  $prefix/bin/cosmic-control-center-applet --check"
+          echo
+          echo "Then add it in Settings -> Desktop -> Panel -> Configure applets."
+          case ":$PATH:" in
+              *":$prefix/bin:"*) ;;
+              *) echo; echo "Note: $prefix/bin is not on your PATH." ;;
+          esac
+          INSTALL
+          chmod +x "$stage/install.sh"
+
+          tar czf "$stage.tar.gz" "$stage"
+          sha256sum "$stage.tar.gz" > "$stage.tar.gz.sha256"
+
+      - name: Publish
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            *.tar.gz
+            *.tar.gz.sha256
+          body: |
+            Install with the tarball below, or from the AUR.
+
+            ```sh
+            tar xzf cosmic-control-center-applet-*-x86_64-linux.tar.gz
+            cd cosmic-control-center-applet-*-x86_64-linux
+            ./install.sh
+            ```
+
+            Then add it in **Settings → Desktop → Panel → Configure applets**.
+
+            If a tile is missing, run `cosmic-control-center-applet --check` —
+            it probes every backend and says which one could not be read.
