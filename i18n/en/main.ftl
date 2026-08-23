@@ -52,13 +52,15 @@ battery = Battery
 battery-charge = { $percent }%
 battery-charging = { $percent }% charging
 battery-no-battery = On mains
+battery-remaining = { $time } remaining
+battery-until-full = { $time } until full
 power-profile = Power profile
 profile-power-saver = Power Saver
 profile-balanced = Balanced
 profile-performance = Performance
 performance-degraded = Performance limited: { $reason }
 game-mode = Game Mode
-game-mode-detail = Feral GameMode
+game-mode-detail = Feral GameMode — stacks with the profile above
 game-mode-held = Held on by a running game
 
 # -- DNS ----------------------------------------------------------------------

@@ -59,9 +59,18 @@ trait Device {
     fn percentage(&self) -> zbus::Result<f64>;
     #[zbus(property)]
     fn is_present(&self) -> zbus::Result<bool>;
-    /// UPower's `BatteryState`; 1 is charging, 5 is discharging.
+    /// UPower's `BatteryState`: 1 charging, 2 discharging, 3 empty,
+    /// 4 fully charged, 5 pending charge, 6 pending discharge.
     #[zbus(property)]
     fn state(&self) -> zbus::Result<u32>;
+
+    /// Seconds until flat. **Zero means unknown**, not "right now" — UPower
+    /// reports 0 until it has enough discharge history to estimate.
+    #[zbus(property)]
+    fn time_to_empty(&self) -> zbus::Result<i64>;
+    /// Seconds until full, with the same zero-means-unknown rule.
+    #[zbus(property)]
+    fn time_to_full(&self) -> zbus::Result<i64>;
 }
 
 /// The three profiles, in the order they are shown.
@@ -124,6 +133,10 @@ pub struct State {
     /// Whether this hardware can limit its charge at all.
     pub charge_threshold_supported: bool,
     pub charge_threshold_enabled: bool,
+
+    /// Seconds until flat or until full, whichever applies. `None` when UPower
+    /// has no estimate yet.
+    pub time_remaining: Option<i64>,
 }
 
 #[derive(Debug, Clone)]
@@ -134,6 +147,7 @@ pub enum Event {
         charging: bool,
         charge_threshold_supported: bool,
         charge_threshold_enabled: bool,
+        time_remaining: Option<i64>,
     },
     /// power-profiles-daemon answered. An empty `supported` means it is running
     /// but offers nothing usable; a daemon that is not running produces no
@@ -159,9 +173,11 @@ impl State {
                 charging,
                 charge_threshold_supported,
                 charge_threshold_enabled,
+                time_remaining,
             } => {
                 self.charge_threshold_supported = charge_threshold_supported;
                 self.charge_threshold_enabled = charge_threshold_enabled;
+                self.time_remaining = time_remaining;
                 self.battery = if present {
                     Availability::Available
                 } else {
@@ -274,7 +290,18 @@ async fn read_battery(proxy: &DeviceProxy<'_>) -> zbus::Result<Event> {
         0.0
     };
     // 1 = charging, 4 = fully charged. Anything else is treated as not charging.
-    let charging = matches!(proxy.state().await.unwrap_or(0), 1 | 4);
+    let state = proxy.state().await.unwrap_or(0);
+    let charging = matches!(state, 1 | 4);
+
+    // Which estimate applies depends on direction, and UPower reports 0 for
+    // "no estimate yet" rather than omitting it — showing that verbatim would
+    // read as "0 minutes left", which is alarming and wrong.
+    let seconds = if charging {
+        proxy.time_to_full().await.unwrap_or(0)
+    } else {
+        proxy.time_to_empty().await.unwrap_or(0)
+    };
+    let time_remaining = (present && seconds > 0).then_some(seconds);
     Ok(Event::Battery {
         present,
         percent,
@@ -287,6 +314,7 @@ async fn read_battery(proxy: &DeviceProxy<'_>) -> zbus::Result<Event> {
             .unwrap_or(0)
             != 0,
         charge_threshold_enabled: proxy.charge_threshold_enabled().await.unwrap_or(false),
+        time_remaining,
     })
 }
 
@@ -354,10 +382,20 @@ pub async fn probe() -> Result<String, String> {
                 percent,
                 charging,
                 charge_threshold_supported,
+                time_remaining,
                 ..
             }) => format!(
-                "{percent:.0}%{}{}",
+                "{percent:.0}%{}{}{}",
                 if charging { " charging" } else { "" },
+                match time_remaining {
+                    Some(seconds) => format!(
+                        ", {} {}",
+                        format_duration(seconds),
+                        if charging { "until full" } else { "remaining" }
+                    ),
+                    // Expected on mains, or before UPower has enough history.
+                    None => ", no time estimate yet".to_string(),
+                },
                 if charge_threshold_supported {
                     ", charge limit supported"
                 } else {
@@ -391,9 +429,55 @@ pub async fn probe() -> Result<String, String> {
     Ok(format!("battery: {battery}; profiles: {profiles}"))
 }
 
+/// Render a duration as "2h 15m", or just "45m" under an hour.
+///
+/// Rounds to the minute: a battery estimate accurate to the second would be
+/// false precision, and a ticking seconds count in a popup is a distraction.
+pub fn format_duration(seconds: i64) -> String {
+    let minutes = (seconds / 60).max(1);
+    let hours = minutes / 60;
+    let minutes = minutes % 60;
+
+    if hours > 0 {
+        format!("{hours}h {minutes:02}m")
+    } else {
+        format!("{minutes}m")
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn durations_read_as_hours_and_minutes() {
+        assert_eq!(format_duration(60 * 135), "2h 15m");
+        assert_eq!(format_duration(60 * 45), "45m");
+        assert_eq!(format_duration(60 * 60), "1h 00m");
+    }
+
+    #[test]
+    fn a_sub_minute_estimate_does_not_render_as_zero() {
+        // "0m" reads as "it is about to die"; anything under a minute is 1m.
+        assert_eq!(format_duration(30), "1m");
+        assert_eq!(format_duration(0), "1m");
+    }
+
+    #[test]
+    fn no_estimate_is_absent_rather_than_zero() {
+        // UPower reports 0 until it has discharge history. Showing that
+        // verbatim would say "0 minutes remaining" on a full battery.
+        let mut state = State::default();
+        state.update(Event::Battery {
+            present: true,
+            percent: 100.0,
+            charging: false,
+            charge_threshold_supported: false,
+            charge_threshold_enabled: false,
+            time_remaining: None,
+        });
+        assert_eq!(state.time_remaining, None);
+    }
 
     #[test]
     fn profile_names_round_trip() {
@@ -420,6 +504,7 @@ mod tests {
             charging: false,
             charge_threshold_supported: false,
             charge_threshold_enabled: false,
+            time_remaining: None,
         });
         state.update(Event::Profiles {
             active: Some(Profile::Balanced),
@@ -443,6 +528,7 @@ mod tests {
             charging: false,
             charge_threshold_supported: false,
             charge_threshold_enabled: false,
+            time_remaining: None,
         });
         state.update(Event::Profiles {
             active: None,
@@ -478,6 +564,7 @@ mod tests {
             charging: false,
             charge_threshold_supported: false,
             charge_threshold_enabled: false,
+            time_remaining: None,
         });
         assert!(!state.charge_threshold_supported);
         assert!(state.toggle_charge_threshold().is_none());
@@ -492,6 +579,7 @@ mod tests {
             charging: false,
             charge_threshold_supported: true,
             charge_threshold_enabled: false,
+            time_remaining: None,
         });
         assert!(state.toggle_charge_threshold().is_some());
         assert!(state.charge_threshold_enabled);
@@ -506,6 +594,7 @@ mod tests {
             charging: true,
             charge_threshold_supported: false,
             charge_threshold_enabled: false,
+            time_remaining: None,
         });
         assert_eq!(state.percent, Some(100.0));
     }

@@ -564,7 +564,7 @@ impl App {
         // The radio switch is pointless while airplane mode holds it down, and
         // offering it would be a button that visibly does nothing.
         if !self.wifi.airplane_mode {
-            content = content.push(list_row(
+            content = content.push(toggle_row(
                 wifi_icon(&self.wifi),
                 fl!("wifi"),
                 self.wifi.hardware_killed.then(|| fl!("wifi-hardware-off")),
@@ -692,6 +692,17 @@ impl App {
                 spacing,
             ));
 
+        // How long is left, when UPower has an estimate. Above the profiles
+        // because it is the thing you opened this page to read.
+        if let Some(seconds) = self.battery.time_remaining {
+            let remaining = battery::format_duration(seconds);
+            content = content.push(text::body(if self.battery.charging {
+                fl!("battery-until-full", time = remaining)
+            } else {
+                fl!("battery-remaining", time = remaining)
+            }));
+        }
+
         // Render what the daemon reported, not all three: hardware without a
         // platform profile driver has no `performance`, and offering a profile
         // that cannot be set would be a dead button.
@@ -702,6 +713,30 @@ impl App {
                 None,
                 self.battery.active_profile == Some(*profile),
                 Some(Message::SetProfile(*profile)),
+                spacing,
+            ));
+        }
+
+        // Game Mode sits directly after Performance, as the last entry in the
+        // same list. It is worth being clear that it is not a fourth profile:
+        // it is a separate daemon and it stacks with whichever profile is
+        // selected, so its subtitle says so rather than letting the position
+        // imply mutual exclusivity.
+        if self.config.modules.gamemode && self.gamemode.availability.is_shown() {
+            content = content.push(list_row(
+                icons::game_mode(),
+                fl!("game-mode"),
+                Some(if self.gamemode.can_toggle() {
+                    fl!("game-mode-detail")
+                } else {
+                    // A game is holding it on; say so rather than showing a row
+                    // that refuses to respond.
+                    fl!("game-mode-held")
+                }),
+                self.gamemode.active,
+                self.gamemode
+                    .can_toggle()
+                    .then_some(Message::ToggleGameMode),
                 spacing,
             ));
         }
@@ -721,29 +756,6 @@ impl App {
                 Some(fl!("charge-limit-detail")),
                 self.battery.charge_threshold_enabled,
                 Some(Message::ToggleChargeThreshold),
-                spacing,
-            ));
-        }
-
-        // GameMode sits below the profiles with a divider, not among them. It is
-        // a separate daemon and orthogonal to the profile — you can run it on
-        // Balanced — so listing it as a fourth profile would misrepresent it.
-        if self.config.modules.gamemode && self.gamemode.availability.is_shown() {
-            content = content.push(divider::horizontal::default());
-            content = content.push(toggle_row(
-                icons::game_mode(),
-                fl!("game-mode"),
-                Some(if self.gamemode.can_toggle() {
-                    fl!("game-mode-detail")
-                } else {
-                    // A game is holding it on; say so rather than showing a
-                    // switch that refuses to move.
-                    fl!("game-mode-held")
-                }),
-                self.gamemode.active,
-                self.gamemode
-                    .can_toggle()
-                    .then_some(Message::ToggleGameMode),
                 spacing,
             ));
         }
