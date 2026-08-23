@@ -40,3 +40,8 @@ uninstall:
 # this mainly catches startup panics rather than showing a usable window.
 run:
     RUST_LOG=debug cargo run
+
+# Probe every backend on this machine and report. First thing to run when a
+# tile is missing.
+check-system:
+    cargo run -- --check

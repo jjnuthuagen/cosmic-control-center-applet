@@ -20,11 +20,11 @@ use cosmic::{Application, Element};
 use crate::config::Config;
 use crate::fl;
 use crate::modules::{battery, bluetooth, brightness, dns, network, system, volume};
-use crate::ui::{list_row, page_header, slider_row, tile_grid, Tile};
+use crate::ui::{list_row, page_header, scrollable_page, slider_row, tile_grid, Spacing, Tile};
 
 /// Wide enough for two tiles plus their state text, narrow enough not to
-/// dominate the screen.
-const POPUP_WIDTH: f32 = 360.0;
+/// dominate the screen. Public because `ui` sizes its text elision against it.
+pub const POPUP_WIDTH: f32 = 360.0;
 const POPUP_MAX_HEIGHT: f32 = 720.0;
 
 /// Cap on the network and device lists.
@@ -101,8 +101,8 @@ pub struct App {
 }
 
 impl App {
-    fn spacing(&self) -> u16 {
-        self.core.system_theme().cosmic().spacing.space_xs
+    fn spacing(&self) -> Spacing {
+        Spacing::from_theme(self.core.system_theme())
     }
 
     // Each tile needs the module enabled in config *and* a working backend.
@@ -190,7 +190,7 @@ impl App {
 
         if self.show_wifi() {
             tiles.push(
-                Tile::new(wifi_icon(&self.wifi), self.wifi_state_text())
+                Tile::new(wifi_icon(&self.wifi), fl!("wifi"), self.wifi_state_text())
                     .active(self.wifi.enabled && !self.wifi.airplane_mode)
                     .on_press(Message::Navigate(Page::Wifi))
                     .view(spacing),
@@ -198,14 +198,22 @@ impl App {
         }
         if self.show_bluetooth() {
             tiles.push(
-                Tile::new("bluetooth-symbolic", self.bluetooth_state_text())
-                    .active(self.bluetooth.powered)
-                    .on_press(Message::Navigate(Page::Bluetooth))
-                    .view(spacing),
+                Tile::new(
+                    "bluetooth-symbolic",
+                    fl!("bluetooth"),
+                    self.bluetooth_state_text(),
+                )
+                .active(self.bluetooth.powered)
+                .on_press(Message::Navigate(Page::Bluetooth))
+                .view(spacing),
             );
         }
         if self.show_battery() {
-            let mut tile = Tile::new("battery-symbolic", self.battery_state_text());
+            let mut tile = Tile::new(
+                "battery-symbolic",
+                fl!("battery"),
+                self.battery_state_text(),
+            );
             // Only offer the page when there is something on it.
             if self.battery.profiles.is_shown() {
                 tile = tile.on_press(Message::Navigate(Page::Battery));
@@ -218,7 +226,7 @@ impl App {
                 .active()
                 .map_or_else(|| fl!("dns-custom"), provider_label);
             tiles.push(
-                Tile::new("network-server-symbolic", state)
+                Tile::new("network-server-symbolic", fl!("dns"), state)
                     .on_press(Message::Navigate(Page::Dns))
                     .view(spacing),
             );
@@ -236,6 +244,7 @@ impl App {
                     } else {
                         "weather-clear-symbolic"
                     },
+                    fl!("dark-mode"),
                     state,
                 )
                 .active(self.system.dark)
@@ -250,7 +259,7 @@ impl App {
                 fl!("tiling-off")
             };
             tiles.push(
-                Tile::new("view-grid-symbolic", state)
+                Tile::new("view-grid-symbolic", fl!("tiling"), state)
                     .active(self.system.tiling)
                     .on_press(Message::ToggleTiling)
                     .view(spacing),
@@ -258,7 +267,7 @@ impl App {
         }
 
         let has_tiles = !tiles.is_empty();
-        let mut content = column::with_capacity(8).spacing(spacing);
+        let mut content = column::with_capacity(8).spacing(spacing.section);
         for grid_row in tile_grid(tiles, spacing) {
             content = content.push(grid_row);
         }
@@ -298,11 +307,13 @@ impl App {
 
     fn wifi_page(&self) -> Element<'_, Message> {
         let spacing = self.spacing();
-        let mut content = column::with_capacity(12).spacing(spacing).push(page_header(
-            fl!("wifi"),
-            Message::Navigate(Page::Root),
-            spacing,
-        ));
+        let mut content = column::with_capacity(12)
+            .spacing(spacing.section)
+            .push(page_header(
+                fl!("wifi"),
+                Message::Navigate(Page::Root),
+                spacing,
+            ));
 
         content = content.push(list_row(
             "airplane-mode-symbolic",
@@ -381,7 +392,7 @@ impl App {
     fn bluetooth_page(&self) -> Element<'_, Message> {
         let spacing = self.spacing();
         let mut content = column::with_capacity(10)
-            .spacing(spacing)
+            .spacing(spacing.section)
             .push(page_header(
                 fl!("bluetooth"),
                 Message::Navigate(Page::Root),
@@ -436,11 +447,13 @@ impl App {
 
     fn battery_page(&self) -> Element<'_, Message> {
         let spacing = self.spacing();
-        let mut content = column::with_capacity(6).spacing(spacing).push(page_header(
-            fl!("power-profile"),
-            Message::Navigate(Page::Root),
-            spacing,
-        ));
+        let mut content = column::with_capacity(6)
+            .spacing(spacing.section)
+            .push(page_header(
+                fl!("power-profile"),
+                Message::Navigate(Page::Root),
+                spacing,
+            ));
 
         // Render what the daemon reported, not all three: hardware without a
         // platform profile driver has no `performance`, and offering a profile
@@ -470,11 +483,13 @@ impl App {
 
     fn dns_page(&self) -> Element<'_, Message> {
         let spacing = self.spacing();
-        let mut content = column::with_capacity(10).spacing(spacing).push(page_header(
-            fl!("dns"),
-            Message::Navigate(Page::Root),
-            spacing,
-        ));
+        let mut content = column::with_capacity(10)
+            .spacing(spacing.section)
+            .push(page_header(
+                fl!("dns"),
+                Message::Navigate(Page::Root),
+                spacing,
+            ));
 
         if let Some(connection) = &self.dns.connection_name {
             content = content.push(text::caption(fl!(
@@ -498,7 +513,7 @@ impl App {
         content = content.push(
             row::with_capacity(2)
                 .align_y(Alignment::Center)
-                .spacing(spacing)
+                .spacing(spacing.gap)
                 .push(
                     text_input::text_input(fl!("dns-manual-placeholder"), &self.dns.manual_input)
                         .on_input(Message::DnsManualInput)
@@ -532,10 +547,10 @@ impl App {
     }
 }
 
-fn password_field<'a>(wifi: &'a network::State, spacing: u16) -> Element<'a, Message> {
+fn password_field<'a>(wifi: &'a network::State, spacing: Spacing) -> Element<'a, Message> {
     row::with_capacity(3)
         .align_y(Alignment::Center)
-        .spacing(spacing)
+        .spacing(spacing.gap)
         .push(
             text_input::secure_input(
                 fl!("enter-password"),
@@ -868,19 +883,22 @@ impl Application for App {
     }
 
     fn view_window(&self, _id: Id) -> Element<'_, Message> {
-        let page = match self.page {
+        // Every page scrolls. The root grid rarely needs it, but a Wi-Fi page
+        // in a busy building or a Bluetooth page with a dozen paired devices
+        // will exceed the popup height cap, and overflow is simply not drawn.
+        let page = scrollable_page(match self.page {
             Page::Root => self.root_page(),
             Page::Wifi => self.wifi_page(),
             Page::Bluetooth => self.bluetooth_page(),
             Page::Battery => self.battery_page(),
             Page::Dns => self.dns_page(),
-        };
+        });
 
         self.core
             .applet
             .popup_container(
                 container(page)
-                    .padding(self.spacing())
+                    .padding(self.spacing().section)
                     .width(Length::Fixed(POPUP_WIDTH)),
             )
             .into()

@@ -291,9 +291,9 @@ impl State {
         // Two ids so switching rate actually swaps the subscription: iced keys
         // on the data tuple, and the interval is part of it.
         if self.scanning {
-            watch("wifi-scan", SCAN_INTERVAL)
+            watch("wifi-scan", SCAN_INTERVAL, true)
         } else {
-            watch("wifi-idle", IDLE_INTERVAL)
+            watch("wifi-idle", IDLE_INTERVAL, false)
         }
     }
 }
@@ -304,7 +304,7 @@ impl State {
 /// sample, and `nmrs::NetworkManager::new` opens a bus connection and does
 /// discovery. Holding one across the loop is the difference between a cheap
 /// poll and an expensive one.
-fn watch(id: &'static str, interval: Duration) -> Subscription<Event> {
+fn watch(id: &'static str, interval: Duration, scan: bool) -> Subscription<Event> {
     use futures::StreamExt;
 
     enum State {
@@ -312,7 +312,7 @@ fn watch(id: &'static str, interval: Duration) -> Subscription<Event> {
         Connected(Box<nmrs::NetworkManager>),
     }
 
-    Subscription::run_with((id, interval), |&(_, interval)| {
+    Subscription::run_with((id, interval, scan), |&(_, interval, scan)| {
         futures::stream::unfold(
             State::Disconnected { attempts: 0 },
             move |state| async move {
@@ -336,6 +336,18 @@ fn watch(id: &'static str, interval: Duration) -> Subscription<Event> {
                         }
                     }
                     State::Connected(manager) => {
+                        if scan {
+                            // NetworkManager only returns access points it
+                            // already knows about. Without asking for a scan the
+                            // list is whatever happened to be cached — typically
+                            // just the network you are already on. Errors are
+                            // ignored on purpose: NM refuses scans that come too
+                            // soon after the last one, which is a rate limit,
+                            // not a failure.
+                            if let Err(err) = manager.scan_networks(None).await {
+                                tracing::trace!("scan request declined: {err}");
+                            }
+                        }
                         let event = match snapshot(&manager).await {
                             Ok(snapshot) => Some(Event::Snapshot(Box::new(snapshot))),
                             Err(err) => {
@@ -494,6 +506,39 @@ fn classify(err: nmrs::ConnectionError) -> Error {
             }
         }
     }
+}
+
+/// One-shot read for `--check`.
+pub async fn probe() -> Result<String, String> {
+    let manager = nmrs::NetworkManager::new()
+        .await
+        .map_err(|err| format!("NetworkManager not reachable: {err}"))?;
+
+    // Scan first, or the count reflects NetworkManager's cache rather than what
+    // is actually in range — which makes this probe misleading in exactly the
+    // situation it exists to diagnose.
+    if manager.scan_networks(None).await.is_ok() {
+        tokio::time::sleep(Duration::from_secs(3)).await;
+    }
+
+    let snapshot = snapshot(&manager).await.map_err(|err| format!("{err}"))?;
+
+    Ok(format!(
+        "radio {}{}{}, {} network(s) visible, connected to {}",
+        if snapshot.enabled { "on" } else { "off" },
+        if snapshot.hardware_killed {
+            " (hardware killed)"
+        } else {
+            ""
+        },
+        if snapshot.airplane_mode {
+            ", airplane mode"
+        } else {
+            ""
+        },
+        snapshot.networks.len(),
+        snapshot.connected_ssid.as_deref().unwrap_or("nothing"),
+    ))
 }
 
 #[cfg(test)]

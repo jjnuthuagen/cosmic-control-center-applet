@@ -289,6 +289,49 @@ async fn write_profile(profile: Profile) -> zbus::Result<()> {
         .await
 }
 
+/// One-shot read for `--check`.
+///
+/// Reports the two halves separately, because they genuinely are: a desktop has
+/// power profiles and no battery.
+pub async fn probe() -> Result<String, String> {
+    let connection = zbus::Connection::system()
+        .await
+        .map_err(|err| format!("no system bus: {err}"))?;
+
+    let battery = match DeviceProxy::new(&connection).await {
+        Ok(proxy) => match read_battery(&proxy).await {
+            Ok(Event::Battery {
+                present: true,
+                percent,
+                charging,
+            }) => format!("{percent:.0}%{}", if charging { " charging" } else { "" }),
+            Ok(_) => "no battery present".to_string(),
+            Err(err) => format!("unreadable ({err})"),
+        },
+        Err(err) => format!("UPower unreachable ({err})"),
+    };
+
+    let profiles = match PowerProfilesProxy::new(&connection).await {
+        Ok(proxy) => match read_profiles(&proxy).await {
+            Ok(Event::Profiles {
+                active, supported, ..
+            }) => format!(
+                "{} of [{}]",
+                active.map_or("none", Profile::as_dbus),
+                supported
+                    .iter()
+                    .map(|p| p.as_dbus())
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            ),
+            _ => "unreadable".to_string(),
+        },
+        Err(_) => "power-profiles-daemon not running".to_string(),
+    };
+
+    Ok(format!("battery: {battery}; profiles: {profiles}"))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

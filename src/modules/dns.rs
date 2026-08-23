@@ -423,6 +423,36 @@ fn classify(err: &zbus::Error) -> Error {
     }
 }
 
+/// One-shot read for `--check`.
+pub async fn probe() -> Result<String, String> {
+    let connection = zbus::Connection::system()
+        .await
+        .map_err(|err| format!("no system bus: {err}"))?;
+    let manager = NetworkManagerProxy::new(&connection)
+        .await
+        .map_err(|err| format!("NetworkManager not reachable: {err}"))?;
+
+    match read_current_inner(&connection, &manager).await {
+        Ok(Event::Current {
+            servers,
+            connection_name,
+        }) => Ok(if servers.is_empty() {
+            format!("{connection_name}: automatic (DHCP)")
+        } else {
+            format!(
+                "{connection_name}: {}",
+                servers
+                    .iter()
+                    .map(ToString::to_string)
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            )
+        }),
+        Ok(_) => Err("no primary connection".to_string()),
+        Err(err) => Err(format!("could not read settings: {err}")),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

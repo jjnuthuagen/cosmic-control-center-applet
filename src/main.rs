@@ -6,6 +6,7 @@
 //! absent, and can be switched off entirely in `config.toml`.
 
 mod app;
+mod check;
 mod config;
 mod i18n;
 mod modules;
@@ -21,6 +22,22 @@ fn main() -> cosmic::iced::Result {
                 .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("warn")),
         )
         .init();
+
+    // `--check` probes every backend and prints what it found, without opening
+    // a surface. See `check.rs` for why an applet needs this.
+    if std::env::args().skip(1).any(|arg| arg == "--check") {
+        let runtime = match tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+        {
+            Ok(runtime) => runtime,
+            Err(err) => {
+                eprintln!("could not start a runtime: {err}");
+                std::process::exit(2);
+            }
+        };
+        std::process::exit(runtime.block_on(check::run()));
+    }
 
     cosmic::applet::run::<app::App>(())
 }

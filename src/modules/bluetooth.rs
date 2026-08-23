@@ -293,6 +293,35 @@ async fn write_powered(path: OwnedObjectPath, powered: bool) -> zbus::Result<()>
         .await
 }
 
+/// One-shot read for `--check`.
+pub async fn probe() -> Result<String, String> {
+    let connection = zbus::Connection::system()
+        .await
+        .map_err(|err| format!("no system bus: {err}"))?;
+    let manager = ObjectManagerProxy::new(&connection)
+        .await
+        .map_err(|err| format!("org.bluez not reachable: {err}"))?;
+    let objects = manager
+        .get_managed_objects()
+        .await
+        .map_err(|err| format!("GetManagedObjects failed: {err}"))?;
+
+    match summarise(&objects) {
+        Some(Event::Changed {
+            powered,
+            connected_devices,
+            devices,
+            adapter_path,
+        }) => Ok(format!(
+            "{} is {}, {} device(s) known, {connected_devices} connected",
+            adapter_path.as_str(),
+            if powered { "on" } else { "off" },
+            devices.len()
+        )),
+        _ => Err("bluetoothd is running but has no adapter".to_string()),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

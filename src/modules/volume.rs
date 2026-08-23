@@ -238,6 +238,18 @@ fn parse_pactl(output: &str) -> Option<(f64, bool)> {
     Some((super::clamp_percent(percent), muted))
 }
 
+/// One-shot read for `--check`.
+pub async fn probe() -> Result<String, String> {
+    let backend = Backend::detect().ok_or("neither wpctl nor pactl found on PATH")?;
+    match sample().await {
+        Event::Sampled { percent, muted } => Ok(format!(
+            "{backend:?}, {percent:.0}%{}",
+            if muted { ", muted" } else { "" }
+        )),
+        Event::Unavailable => Err(format!("{backend:?} found but its output did not parse")),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -125,6 +125,21 @@ fn flip_tiling() -> Result<(), cosmic::cosmic_config::Error> {
     config.set::<bool>(KEY_AUTOTILE, !current)
 }
 
+/// One-shot read for `--check`.
+pub fn probe() -> Result<String, String> {
+    let dark = read_dark().ok_or("theme mode config unreadable")?;
+    let tiling = read_tiling();
+    Ok(format!(
+        "theme is {}, tiling {}",
+        if dark { "dark" } else { "light" },
+        match tiling {
+            Some(true) => "on".to_string(),
+            Some(false) => "off".to_string(),
+            None => "unavailable".to_string(),
+        }
+    ))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

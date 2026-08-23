@@ -163,6 +163,16 @@ fn percent_to_raw(percent: f64, max: u32) -> u32 {
     raw.clamp(1.0, f64::from(max)) as u32
 }
 
+/// One-shot read for `--check`.
+pub fn probe() -> Result<String, String> {
+    let device = discover().ok_or("no backlight device in /sys/class/backlight")?;
+    let percent = sample().ok_or("device present but its brightness is unreadable")?;
+    Ok(format!(
+        "{} (max {}), currently {percent:.0}%",
+        device.name, device.max
+    ))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

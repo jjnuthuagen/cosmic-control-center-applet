@@ -76,7 +76,9 @@ volume-muted = Muted
 brightness = Brightness
 
 # -- Quick toggles ------------------------------------------------------------
+dark-mode = Dark Mode
 mode-dark = Dark
 mode-light = Light
+tiling = Window Tiling
 tiling-on = Tiled
 tiling-off = Floating

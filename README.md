@@ -91,14 +91,29 @@ Runtime services expected (all optional — each gates only its own module):
 
 All user-facing strings live in `i18n/<lang>/main.ftl` ([Fluent](https://projectfluent.org/)). Translations are very welcome — copy `i18n/en/` and translate.
 
+## Something missing?
+
+A tile only appears when its backend is actually readable, so a missing tile
+usually means missing hardware or a daemon that is not running. To find out
+which:
+
+```sh
+cosmic-control-center-applet --check
+```
+
+It probes every backend and prints what it found. Please include its output in
+any bug report.
+
 ## Contributing
 
 Issues and PRs welcome. Before opening a PR:
 
 ```sh
-cargo fmt --check
-cargo clippy -- -D warnings
+just verify     # fmt, clippy -D warnings, tests — exactly what CI runs
 ```
+
+See [TESTING.md](TESTING.md) for the manual UI checklist and the list of
+regressions that have a test guarding them.
 
 ## Licence
 
