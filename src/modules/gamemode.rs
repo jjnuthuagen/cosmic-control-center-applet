@@ -20,6 +20,19 @@
 //! again. That is the same trick other panel integrations use, and it behaves
 //! correctly: if the applet exits, its registration goes with it and GameMode
 //! releases, rather than leaving the machine stuck in a tuned state.
+//!
+//! # Detecting it without starting it
+//!
+//! `com.feralinteractive.GameMode` is D-Bus **activatable**, so simply reading
+//! `ClientCount` launches `gamemoded`. An earlier version of this module did
+//! exactly that, which meant opening the popup started a daemon the user was not
+//! running — a side effect no status display should have.
+//!
+//! So availability is decided from the bus's own name lists first: if the name
+//! is neither owned nor activatable, GameMode is not installed and the row is
+//! hidden. If it is activatable but not yet owned, nothing is running, so the
+//! client count is zero by definition and there is no need to ask. Only a name
+//! that is *already* owned gets queried.
 
 use cosmic::iced::Subscription;
 use std::time::Duration;
@@ -108,7 +121,8 @@ impl State {
     pub fn subscription(&self) -> Subscription<Event> {
         poll_subscription("gamemode", POLL_INTERVAL, || async {
             Some(match client_count().await {
-                Ok(clients) => Event::Changed { clients },
+                Ok(Some(clients)) => Event::Changed { clients },
+                Ok(None) => Event::Unavailable,
                 Err(err) => {
                     tracing::debug!("GameMode unavailable: {err}");
                     Event::Unavailable
@@ -125,10 +139,36 @@ fn our_pid() -> i32 {
     std::process::id().min(i32::MAX as u32) as i32
 }
 
-async fn client_count() -> zbus::Result<i32> {
+/// How many clients hold GameMode, or `None` when it is not installed.
+///
+/// Never activates the daemon — see the note at the top of this module.
+async fn client_count() -> zbus::Result<Option<i32>> {
     let connection = zbus::Connection::session().await?;
-    GameModeProxy::new(&connection).await?.client_count().await
+    let bus = zbus::fdo::DBusProxy::new(&connection).await?;
+    let name = zbus::names::BusName::try_from(BUS_NAME)
+        .map_err(|err| zbus::Error::Failure(err.to_string()))?;
+
+    if bus.name_has_owner(name).await.unwrap_or(false) {
+        return GameModeProxy::new(&connection)
+            .await?
+            .client_count()
+            .await
+            .map(Some);
+    }
+
+    let installed = bus
+        .list_activatable_names()
+        .await
+        .unwrap_or_default()
+        .iter()
+        .any(|candidate| candidate.as_str() == BUS_NAME);
+
+    // Installed but not running means nothing has registered, which is a zero
+    // count without having to start it to find out.
+    Ok(installed.then_some(0))
 }
+
+const BUS_NAME: &str = "com.feralinteractive.GameMode";
 
 async fn hold(register: bool) -> zbus::Result<()> {
     let connection = zbus::Connection::session().await?;
@@ -154,12 +194,13 @@ async fn hold(register: bool) -> zbus::Result<()> {
 /// One-shot read for `--check`.
 pub async fn probe() -> Result<String, String> {
     match client_count().await {
-        Ok(clients) => Ok(format!(
+        Ok(Some(clients)) => Ok(format!(
             "{} client(s) registered, {}",
             clients,
             if clients > 0 { "active" } else { "idle" }
         )),
-        Err(err) => Err(format!("gamemoded not reachable: {err}")),
+        Ok(None) => Err("gamemode is not installed".to_string()),
+        Err(err) => Err(format!("could not ask the session bus: {err}")),
     }
 }
 

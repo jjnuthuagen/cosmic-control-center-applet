@@ -14,7 +14,7 @@
 use cosmic::app::{Core, Task};
 use cosmic::iced::window::{self, Id};
 use cosmic::iced::{Alignment, Length, Limits, Subscription};
-use cosmic::widget::{button, column, container, divider, row, text, text_input};
+use cosmic::widget::{button, column, container, divider, mouse_area, row, text, text_input};
 use cosmic::{Application, Element};
 
 use crate::config::Config;
@@ -53,6 +53,7 @@ pub enum Message {
     TogglePopup,
     PopupClosed(Id),
     Navigate(Page),
+    OpenSettings,
 
     WifiToggleRadio,
     WifiToggleAirplane,
@@ -203,6 +204,7 @@ impl App {
                 Tile::new(wifi_icon(&self.wifi), fl!("wifi"), self.wifi_state_text())
                     .active(self.wifi.enabled && !self.wifi.airplane_mode)
                     .on_press(Message::Navigate(Page::Wifi))
+                    .style(self.config.appearance.style)
                     .view(spacing),
             );
         }
@@ -215,6 +217,7 @@ impl App {
                 )
                 .active(self.bluetooth.powered)
                 .on_press(Message::Navigate(Page::Bluetooth))
+                .style(self.config.appearance.style)
                 .view(spacing),
             );
         }
@@ -228,7 +231,7 @@ impl App {
             if self.battery.profiles.is_shown() {
                 tile = tile.on_press(Message::Navigate(Page::Battery));
             }
-            tiles.push(tile.view(spacing));
+            tiles.push(tile.style(self.config.appearance.style).view(spacing));
         }
         if self.show_dns() {
             let state = self
@@ -238,6 +241,7 @@ impl App {
             tiles.push(
                 Tile::new(icons::dns(), fl!("dns"), state)
                     .on_press(Message::Navigate(Page::Dns))
+                    .style(self.config.appearance.style)
                     .view(spacing),
             );
         }
@@ -251,6 +255,7 @@ impl App {
                 Tile::new(icons::dark_mode(self.system.dark), fl!("dark-mode"), state)
                     .active(self.system.dark)
                     .on_press(Message::ToggleDark)
+                    .style(self.config.appearance.style)
                     .view(spacing),
             );
         }
@@ -264,6 +269,7 @@ impl App {
                 Tile::new(icons::tiling(self.tiling.tiled), fl!("tiling"), state)
                     .active(self.tiling.tiled)
                     .on_press(Message::ToggleTiling)
+                    .style(self.config.appearance.style)
                     .view(spacing),
             );
         }
@@ -735,6 +741,18 @@ impl Application for App {
                 self.page = Page::Root;
                 self.wifi.cancel_password();
 
+                // Pick up anything the Settings window changed. Doing it here
+                // rather than watching the file keeps the applet free of a file
+                // watcher for something the user only sees on opening the popup
+                // anyway.
+                let config = Config::load();
+                if config.dns.custom_providers != self.config.dns.custom_providers {
+                    // Rebuilding drops the manual-entry text, so only do it when
+                    // the provider list actually changed.
+                    self.dns = dns::State::new(&config.dns.custom_providers);
+                }
+                self.config = config;
+
                 let id = window::Id::unique();
                 self.popup = Some(id);
                 let mut settings = self.core.applet.get_popup_settings(
@@ -754,6 +772,18 @@ impl Application for App {
                 if self.popup == Some(id) {
                     self.popup = None;
                     self.wifi.scanning = false;
+                }
+                Task::none()
+            }
+            Message::OpenSettings => {
+                open_settings_window();
+                // Opening a window over the popup leaves the popup orphaned
+                // under it, so close it.
+                if let Some(id) = self.popup.take() {
+                    self.wifi.scanning = false;
+                    return cosmic::iced::platform_specific::shell::commands::popup::destroy_popup(
+                        id,
+                    );
                 }
                 Task::none()
             }
@@ -918,10 +948,18 @@ impl Application for App {
     }
 
     fn view(&self) -> Element<'_, Message> {
-        self.core
+        let size = self.core.applet.suggested_size(true).0;
+        let button = self
+            .core
             .applet
-            .icon_button(icons::applet())
-            .on_press(Message::TogglePopup)
+            .icon_button_from_handle(icons::panel_handle(&self.config.appearance.icon, size))
+            .on_press(Message::TogglePopup);
+
+        // Right-click opens Settings, matching how panel items behave
+        // elsewhere. Left-click stays the popup, so the common action is
+        // unchanged.
+        mouse_area(button)
+            .on_right_press(Message::OpenSettings)
             .into()
     }
 
@@ -945,6 +983,26 @@ impl Application for App {
                     .width(Length::Fixed(POPUP_WIDTH)),
             )
             .into()
+    }
+}
+
+/// Launch the Settings window as a separate process.
+///
+/// A second process rather than a second surface in this one: an applet is a
+/// layer-shell client, and mixing an ordinary toplevel into the same event loop
+/// is more trouble than spawning the binary again with a flag.
+fn open_settings_window() {
+    let Ok(executable) = std::env::current_exe() else {
+        tracing::error!("could not determine our own path; cannot open Settings");
+        return;
+    };
+
+    match std::process::Command::new(executable)
+        .arg("--settings")
+        .spawn()
+    {
+        Ok(child) => tracing::debug!("opened Settings as pid {}", child.id()),
+        Err(err) => tracing::error!("could not open Settings: {err}"),
     }
 }
 

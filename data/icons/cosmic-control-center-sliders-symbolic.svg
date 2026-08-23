@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 16 16">
+  <!-- Two horizontal tracks with knobs at different positions. -->
+  <g fill="#2e3436">
+    <rect x="1" y="4.25" width="14" height="1.5" rx="0.75"/>
+    <rect x="1" y="10.25" width="14" height="1.5" rx="0.75"/>
+    <circle cx="5" cy="5" r="2.75"/>
+    <circle cx="11" cy="11" r="2.75"/>
+  </g>
+</svg>

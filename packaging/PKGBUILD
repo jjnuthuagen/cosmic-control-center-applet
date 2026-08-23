@@ -57,6 +57,9 @@ package() {
         "data/dev.jamesjohn.CosmicControlCenter.desktop" \
         "$pkgdir/usr/share/applications/dev.jamesjohn.CosmicControlCenter.desktop"
 
+    # hicolor so the preset panel icons resolve under any icon theme.
+    install -Dm0644 -t "$pkgdir/usr/share/icons/hicolor/scalable/apps" data/icons/*.svg
+
     install -Dm0644 "data/config.example.toml" \
         "$pkgdir/usr/share/doc/$pkgname/config.example.toml"
     install -Dm0644 README.md "$pkgdir/usr/share/doc/$pkgname/README.md"

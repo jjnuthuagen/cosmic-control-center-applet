@@ -10,6 +10,7 @@ mod check;
 mod config;
 mod i18n;
 mod modules;
+mod settings;
 mod ui;
 
 fn main() -> cosmic::iced::Result {
@@ -37,6 +38,12 @@ fn main() -> cosmic::iced::Result {
                 std::process::exit(2);
             }
         }
+    }
+
+    // `--settings` runs the same binary as an ordinary window instead of an
+    // applet. The panel button spawns this on right-click.
+    if std::env::args().skip(1).any(|arg| arg == "--settings") {
+        return cosmic::app::run::<settings::Settings>(settings::window_settings(), ());
     }
 
     // `--icons` shows what the active icon theme resolves each state to.

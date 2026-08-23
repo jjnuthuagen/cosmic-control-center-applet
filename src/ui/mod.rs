@@ -24,6 +24,8 @@ use cosmic::widget::{
 };
 use cosmic::{theme, Element};
 
+use crate::config::TileStyle;
+
 /// Icon size inside a tile and a list row.
 pub const ICON_SIZE: u16 = 20;
 
@@ -59,11 +61,19 @@ impl Spacing {
     }
 }
 
-/// Height of a single-line tile: its icon plus its own padding.
+/// Height of a single-line tile: its icon plus its own padding, plus room for
+/// the icon base that [`TileStyle::Medium`] draws around it.
 ///
-/// Derived rather than hardcoded — see the note at the top of this module.
+/// Derived rather than hardcoded — see the note at the top of this module. The
+/// base is included unconditionally so that switching tile style does not
+/// change the grid's geometry: the rows stay put and only the colouring moves.
 pub fn tile_height(spacing: Spacing) -> f32 {
-    f32::from(ICON_SIZE) + f32::from(spacing.pad_y) * 2.0
+    f32::from(ICON_SIZE) + f32::from(spacing.pad_y) * 2.0 + icon_base_padding(spacing) * 2.0
+}
+
+/// Padding inside the medium style's icon base.
+fn icon_base_padding(spacing: Spacing) -> f32 {
+    f32::from(spacing.pad_y / 2)
 }
 
 /// Characters of state text a tile shows before eliding.
@@ -84,6 +94,7 @@ pub struct Tile<'a, Msg> {
     /// visible name label — this is where the discoverability goes instead.
     name: String,
     active: bool,
+    style: TileStyle,
     on_press: Option<Msg>,
 }
 
@@ -94,8 +105,15 @@ impl<'a, Msg: Clone + 'static> Tile<'a, Msg> {
             state: state.into(),
             name: name.into(),
             active: false,
+            style: TileStyle::default(),
             on_press: None,
         }
+    }
+
+    /// How strongly to signal the on state. See [`TileStyle`].
+    pub fn style(mut self, style: TileStyle) -> Self {
+        self.style = style;
+        self
     }
 
     /// Whether the tile reads as "on" — drives the accent fill.
@@ -110,16 +128,31 @@ impl<'a, Msg: Clone + 'static> Tile<'a, Msg> {
     }
 
     pub fn view(self, spacing: Spacing) -> Element<'a, Msg> {
+        // `Low` never shows an on state on the grid at all. Selection lives
+        // inside the drill-down pages instead, which is how Battery has always
+        // behaved: you learn which power profile is active by opening it.
+        let signalled = self.active && self.style != TileStyle::Low;
+
+        let glyph: Element<'a, Msg> = match self.style {
+            TileStyle::Medium => icon_base(self.icon_name, signalled, spacing),
+            _ => icon::from_name(self.icon_name).size(ICON_SIZE).into(),
+        };
+
         let content = row::with_capacity(2)
             .align_y(Alignment::Center)
             .spacing(spacing.gap)
-            .push(icon::from_name(self.icon_name).size(ICON_SIZE))
+            .push(glyph)
             .push(text::body(truncate(&self.state, MAX_STATE_CHARS)).width(Length::Fill));
+
+        // Only `High` tints the whole tile. `Medium` carries the signal on the
+        // icon's base instead, so the tile itself must stay neutral or the two
+        // would compete.
+        let filled = signalled && self.style == TileStyle::High;
 
         let tile = button::custom(content)
             // Set once, here. Never also on a child.
             .padding(spacing.padding())
-            .class(if self.active {
+            .class(if filled {
                 button::ButtonClass::Suggested
             } else {
                 button::ButtonClass::Standard
@@ -137,6 +170,49 @@ impl<'a, Msg: Clone + 'static> Tile<'a, Msg> {
         // find out what it is.
         tooltip(tile, text::body(self.name), tooltip::Position::Top).into()
     }
+}
+
+/// The icon sitting on its own base shape, used by [`TileStyle::Medium`].
+///
+/// The base is always drawn, so the tile does not change shape when the control
+/// turns on — only its colour. Its corner radius comes from the theme, so it
+/// follows whatever roundness the system is set to.
+///
+/// The accent is applied as a tint rather than at full strength on purpose:
+/// libcosmic exposes no way to recolour a named icon, so the glyph keeps the
+/// popup's default foreground colour. A fully saturated accent behind it reads
+/// poorly in both themes — near-white on light blue in dark mode, near-black on
+/// blue in light mode. A tint is unmistakably the accent and keeps the glyph
+/// legible.
+fn icon_base<'a, Msg: 'static>(
+    icon_name: &'a str,
+    active: bool,
+    spacing: Spacing,
+) -> Element<'a, Msg> {
+    container(icon::from_name(icon_name).size(ICON_SIZE))
+        .padding(spacing.pad_y / 2)
+        .class(theme::Container::Custom(Box::new(move |theme| {
+            let cosmic = theme.cosmic();
+            let fill = if active {
+                let mut accent = cosmic.accent_color();
+                accent.alpha = 0.35;
+                accent
+            } else {
+                let mut neutral = cosmic.on_bg_color();
+                neutral.alpha = 0.08;
+                neutral
+            };
+
+            container::Style {
+                background: Some(Background::Color(Color::from(fill))),
+                border: Border {
+                    radius: cosmic.corner_radii.radius_xs.into(),
+                    ..Default::default()
+                },
+                ..Default::default()
+            }
+        })))
+        .into()
 }
 
 /// A placeholder occupying a grid cell that has no tile in it.

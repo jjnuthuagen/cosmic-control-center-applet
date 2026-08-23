@@ -78,6 +78,35 @@ volume = Volume
 volume-muted = Muted
 brightness = Brightness
 
+# -- Settings window ----------------------------------------------------------
+settings = Settings
+close = Close
+
+settings-controls = Controls
+settings-controls-detail = Choose which controls appear in the popup. A control switched off here is never started and never connects to anything. Controls also hide themselves when the hardware or service they need is missing, so switching one on does not guarantee a tile.
+
+settings-style = Tile style
+settings-style-detail = How strongly a tile shows that its control is on.
+style-high = High contrast
+style-high-detail = The whole tile fills with the accent colour when the control is on.
+style-medium = Medium contrast
+style-medium-detail = The tile stays neutral and the icon sits on a shape that takes the accent colour.
+style-low = Low contrast
+style-low-detail = Tiles never look selected. You see what is chosen only after opening a control, the way the battery tile already works.
+
+settings-icon = Panel icon
+settings-icon-detail = What the button on the panel shows.
+icon-system = System default
+icon-custom-placeholder = Icon name, or a path to an image
+icon-preview = Preview
+preset-sliders = Sliders
+preset-toggles = Switches
+preset-dials = Faders
+preset-grid = Tiles
+
+settings-saved = Changes are saved as you make them.
+settings-save-failed = Could not save: { $reason }
+
 # -- Quick toggles ------------------------------------------------------------
 dark-mode = Dark Mode
 mode-dark = Dark

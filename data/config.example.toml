@@ -21,6 +21,23 @@ tiling = true
 # Feral GameMode, shown on the power page when gamemoded is installed.
 gamemode = true
 
+[appearance]
+# How strongly a tile shows that its control is on:
+#   "high"   - the whole tile fills with the accent colour
+#   "medium" - the tile stays neutral; the icon's base takes the accent
+#   "low"    - tiles never look selected; you see what is chosen only after
+#              opening a control, the way the battery tile already works
+style = "high"
+
+# What the panel button shows. Omit for the system default.
+#   [appearance.icon]
+#   kind = "preset"          # sliders | toggles | dials | grid
+#   value = "sliders"
+#
+#   [appearance.icon]
+#   kind = "custom"          # an icon-theme name, or an absolute path
+#   value = "/home/you/icon.svg"
+
 [dns]
 # Extra providers, appended after the built-in ones.
 # Format: ["Display name", "primary", "secondary", ...] — IPv4 only.

@@ -366,7 +366,93 @@ pub fn dark_mode(dark: bool) -> &'static str {
     }
 }
 
-/// The panel button.
+/// Prefix for the glyphs this project ships, installed into hicolor so they
+/// resolve under any icon theme.
+const PRESET_PREFIX: &str = "cosmic-control-center-";
+
+/// The presets offered in the Settings window, in display order.
+pub const PRESETS: [(&str, &str); 4] = [
+    ("sliders", "preset-sliders"),
+    ("toggles", "preset-toggles"),
+    ("dials", "preset-dials"),
+    ("grid", "preset-grid"),
+];
+
+/// Icon-theme name for a preset.
+pub fn preset_name(preset: &str) -> String {
+    format!("{PRESET_PREFIX}{preset}-symbolic")
+}
+
+/// Build the panel button's icon from the user's choice.
+///
+/// Returns a handle rather than a name because a custom choice may be a path on
+/// disk, which has no name to look up.
+pub fn panel_handle(choice: &crate::config::PanelIcon, size: u16) -> cosmic::widget::icon::Handle {
+    use crate::config::PanelIcon;
+
+    match choice {
+        PanelIcon::System => named_handle(applet(), size),
+        PanelIcon::Preset(preset) => {
+            let name = preset_name(preset);
+            // A preset that will not resolve means the icons were not
+            // installed. Falling back to the system icon keeps a button on the
+            // panel rather than leaving a blank gap the user cannot click.
+            if cosmic::widget::icon::from_name(name.clone())
+                .path()
+                .is_some()
+            {
+                cosmic::widget::icon::from_name(name)
+                    .symbolic(true)
+                    .size(size)
+                    .handle()
+            } else {
+                tracing::warn!("preset icon `{name}` is not installed; using the system icon");
+                named_handle(applet(), size)
+            }
+        }
+        PanelIcon::Custom(value) => custom_handle(value, size),
+    }
+}
+
+/// A user-supplied icon: an absolute path, or an icon-theme name.
+///
+/// Both are accepted because both are reasonable things to type, and telling
+/// them apart is unambiguous — a path starts with `/`.
+fn custom_handle(value: &str, size: u16) -> cosmic::widget::icon::Handle {
+    let trimmed = value.trim();
+
+    if trimmed.starts_with('/') {
+        let path = std::path::Path::new(trimmed);
+        if path.is_file() {
+            return cosmic::widget::icon::from_path(path.to_path_buf());
+        }
+        tracing::warn!("custom icon `{trimmed}` does not exist; using the system icon");
+        return named_handle(applet(), size);
+    }
+
+    if !trimmed.is_empty()
+        && cosmic::widget::icon::from_name(trimmed.to_string())
+            .path()
+            .is_some()
+    {
+        return cosmic::widget::icon::from_name(trimmed.to_string())
+            .symbolic(true)
+            .size(size)
+            .handle();
+    }
+
+    tracing::warn!("custom icon `{trimmed}` did not resolve; using the system icon");
+    named_handle(applet(), size)
+}
+
+fn named_handle(name: &'static str, size: u16) -> cosmic::widget::icon::Handle {
+    cosmic::widget::icon::from_name(name)
+        .symbolic(true)
+        .size(size)
+        .handle()
+}
+
+/// The default panel button.
 pub fn applet() -> &'static str {
     resolve(&[
         "preferences-system-symbolic",

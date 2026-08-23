@@ -30,13 +30,19 @@ test:
 # lints CI enforces. If `verify` is green and CI is not, believe CI.
 verify: fmt check test
 
+icons-dst := prefix / 'share' / 'icons' / 'hicolor' / 'scalable' / 'apps'
+
 install: build
     install -Dm0755 {{bin-src}} {{bin-dst}}
     install -Dm0644 {{desktop-src}} {{desktop-dst}}
+    # hicolor is in every icon theme's inheritance chain, so presets installed
+    # here resolve whatever theme the user is on.
+    install -Dm0644 -t {{icons-dst}} data/icons/*.svg
     @echo "Installed. Add it in Settings -> Desktop -> Panel -> Configure applets."
 
 uninstall:
     rm -f {{bin-dst}} {{desktop-dst}}
+    rm -f {{icons-dst}}/cosmic-control-center-*.svg
 
 # Applets expect to be launched by cosmic-panel as a layer-shell surface, so
 # this mainly catches startup panics rather than showing a usable window.

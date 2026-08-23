@@ -52,6 +52,8 @@ jobs:
           cp target/release/cosmic-control-center-applet "$stage/"
           cp data/dev.jamesjohn.CosmicControlCenter.desktop "$stage/"
           cp data/config.example.toml "$stage/"
+          mkdir -p "$stage/icons"
+          cp data/icons/*.svg "$stage/icons/"
           cp README.md TESTING.md LICENSE-MIT LICENSE-APACHE "$stage/"
 
           cat > "$stage/install.sh" <<'INSTALL'
@@ -65,6 +67,10 @@ jobs:
               "$prefix/bin/cosmic-control-center-applet"
           install -Dm0644 "$here/dev.jamesjohn.CosmicControlCenter.desktop" \
               "$prefix/share/applications/dev.jamesjohn.CosmicControlCenter.desktop"
+          for icon in "$here"/icons/*.svg; do
+              install -Dm0644 "$icon" \
+                  "$prefix/share/icons/hicolor/scalable/apps/$(basename "$icon")"
+          done
 
           echo "Installed to $prefix."
           echo
