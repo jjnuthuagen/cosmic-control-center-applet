@@ -1,0 +1,26 @@
+//! Control Center — a COSMIC panel applet for the settings you reach for daily.
+//!
+//! One panel button opens a grid of tiles (Wi-Fi, Bluetooth, battery power
+//! profile, DNS) over sliders for volume and brightness. Each tile is backed by
+//! its own module under [`modules`], hides itself when its hardware or daemon is
+//! absent, and can be switched off entirely in `config.toml`.
+
+mod app;
+mod config;
+mod i18n;
+mod modules;
+mod ui;
+
+fn main() -> cosmic::iced::Result {
+    // `RUST_LOG=debug` is the way to see why a module decided it was
+    // unavailable — those paths log at debug and are silent by default, because
+    // "no battery on this machine" is not something to warn about every second.
+    tracing_subscriber::fmt()
+        .with_env_filter(
+            tracing_subscriber::EnvFilter::try_from_default_env()
+                .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("warn")),
+        )
+        .init();
+
+    cosmic::applet::run::<app::App>(())
+}

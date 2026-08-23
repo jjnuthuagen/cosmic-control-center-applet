@@ -1,0 +1,27 @@
+# Control Center configuration.
+#
+# Copy to ~/.config/cosmic-control-center-applet/config.toml and edit.
+# Every value below is the default, so an absent file behaves identically to
+# this one. Unknown keys are rejected rather than ignored, so a typo shows up
+# as a warning instead of silently doing nothing.
+
+[modules]
+# A module set to false is never constructed and never connects to its bus.
+# Modules also hide themselves when the hardware or daemon is missing, so a
+# desktop does not need to disable `battery` to avoid an empty tile — do it
+# only if you have a battery and still don't want to see it.
+wifi = true
+bluetooth = true
+battery = true
+dns = true
+volume = true
+brightness = true
+dark_mode = true
+
+[dns]
+# Extra providers, appended after the built-in ones.
+# Format: ["Display name", "primary", "secondary", ...] — IPv4 only.
+custom_providers = [
+    # ["Home Pi-hole", "192.168.1.2"],
+    # ["NextDNS", "45.90.28.0", "45.90.30.0"],
+]

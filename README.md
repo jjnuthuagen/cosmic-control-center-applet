@@ -31,11 +31,16 @@ Built in Rust with [libcosmic](https://github.com/pop-os/libcosmic) for the [COS
 | Wi-Fi | `org.freedesktop.NetworkManager` |
 | Bluetooth | `org.bluez` |
 | Battery power profiles | `org.freedesktop.UPower.PowerProfiles` (power-profiles-daemon) + `org.freedesktop.UPower` |
-| DNS profiles | `org.freedesktop.resolve1` (systemd-resolved), falling back to NetworkManager connection settings |
+| DNS profiles | NetworkManager connection settings |
 | Brightness | `org.freedesktop.login1.Session.SetBrightness` (logind) |
-| Volume | PipeWire / WirePlumber |
+| Brightness | logind `SetBrightness` |
+| Volume | WirePlumber (`wpctl`), falling back to `pactl` |
 
-Every backend is reachable **without root** — the applet never escalates privileges.
+Every backend is reachable **without root**, and that constraint drove the choices. Notably DNS goes through NetworkManager rather than systemd-resolved: `org.freedesktop.resolve1.set-dns-servers` is `auth_admin_keep` in polkit, so a resolved-based switcher would demand an administrator password on every single change. NetworkManager grants `settings.modify.own` outright.
+
+The one case that can still prompt is a connection owned by the *system* rather than by you — that falls under `settings.modify.system`, which is `auth_admin_keep`. The applet tells you when this happens instead of failing silently.
+
+Volume is the sole place the applet shells out. PipeWire exposes no D-Bus volume interface, and the real bindings (`libpulse-binding`, `pipewire-rs`) are C dependencies with their own mainloops. `wpctl` ships with WirePlumber, which COSMIC already requires. All process handling is confined to one type so a native binding can replace it later.
 
 ## Modularity
 
@@ -51,7 +56,11 @@ volume     = true
 brightness = true
 ```
 
-Missing hardware or a missing daemon degrades the module gracefully; it never crashes the applet.
+Missing hardware or a missing daemon degrades the module gracefully; it never
+crashes the applet. You do not need to disable `battery` on a desktop — the
+percentage hides itself while the power-profile switch stays, since
+power-profiles-daemon works fine without a battery. Turn a module off only when
+the hardware works and you still don't want the tile.
 
 ## Building
 
@@ -60,8 +69,15 @@ Requires a Rust toolchain and the COSMIC/libcosmic build dependencies.
 ```sh
 git clone https://github.com/jjnuthuagen/cosmic-control-center-applet
 cd cosmic-control-center-applet
-cargo build --release
+just install     # or: cargo build --release
 ```
+
+`just install` puts the binary in `~/.local/bin` and the desktop entry in
+`~/.local/share/applications`. Then add it in **Settings → Desktop → Panel →
+Configure applets**.
+
+`just verify` runs everything CI runs (fmt, clippy, tests), so a green local run
+means a green pull request.
 
 Runtime services expected (all optional — each gates only its own module):
 

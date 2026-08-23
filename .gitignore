@@ -1,7 +1,10 @@
 # Rust
 /target/
 **/*.rs.bk
-Cargo.lock
+
+# Cargo.lock IS committed. This is a binary, not a library, and libcosmic is an
+# unpublished git dependency pinned by revision — without the lockfile a
+# contributor resolves a different tree of transitive crates than CI does.
 
 # Local project scaffolding (PARA working folders — not part of the public crate)
 /working/
