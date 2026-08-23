@@ -15,6 +15,7 @@ use crate::config::Config;
 use crate::modules::{
     battery, bluetooth, brightness, dns, gamemode, network, system, tiling, volume,
 };
+use crate::ui::icons;
 
 /// Exit code when at least one enabled module could not be read.
 ///
@@ -45,6 +46,163 @@ impl Report {
     fn is_failure(&self) -> bool {
         self.enabled && self.result.is_err()
     }
+}
+
+/// `--icons`: print the icon each state resolves to under the active theme.
+///
+/// Icons are picked from a candidate list and fall back when a theme is missing
+/// a name, which means the only way to know what a given theme actually gives
+/// you is to ask it. Run this after switching icon themes; anything showing
+/// `image-missing-symbolic`, or the same name for states that should differ, is
+/// a gap worth reporting.
+pub fn icon_report() -> i32 {
+    println!("icon theme: {}\n", cosmic::icon_theme::default());
+
+    println!("battery");
+    for (percent, charging) in [
+        (Some(5.0), false),
+        (Some(25.0), false),
+        (Some(50.0), false),
+        (Some(95.0), false),
+        (Some(100.0), false),
+        (Some(45.0), true),
+        (Some(100.0), true),
+        (None, false),
+    ] {
+        let label = match percent {
+            Some(p) => format!("{p:>5.0}%{}", if charging { " charging" } else { "" }),
+            None => "  none".to_string(),
+        };
+        println!("  {label:<16} {}", icons::battery(percent, charging));
+    }
+
+    println!("\nbluetooth");
+    for (powered, connected) in [(false, 0), (true, 0), (true, 2)] {
+        let label = if !powered {
+            "off".to_string()
+        } else {
+            format!("on, {connected} connected")
+        };
+        println!("  {label:<16} {}", icons::bluetooth(powered, connected));
+    }
+
+    println!("\nwifi");
+    // Named so the tuple does not read as five anonymous booleans.
+    struct WifiCase {
+        label: &'static str,
+        airplane: bool,
+        hardware_killed: bool,
+        enabled: bool,
+        connected: bool,
+        strength: u8,
+    }
+    let states = [
+        WifiCase {
+            label: "airplane",
+            airplane: true,
+            hardware_killed: false,
+            enabled: true,
+            connected: false,
+            strength: 0,
+        },
+        WifiCase {
+            label: "hardware off",
+            airplane: false,
+            hardware_killed: true,
+            enabled: true,
+            connected: false,
+            strength: 0,
+        },
+        WifiCase {
+            label: "off",
+            airplane: false,
+            hardware_killed: false,
+            enabled: false,
+            connected: false,
+            strength: 0,
+        },
+        WifiCase {
+            label: "disconnected",
+            airplane: false,
+            hardware_killed: false,
+            enabled: true,
+            connected: false,
+            strength: 0,
+        },
+        WifiCase {
+            label: "connected weak",
+            airplane: false,
+            hardware_killed: false,
+            enabled: true,
+            connected: true,
+            strength: 20,
+        },
+        WifiCase {
+            label: "connected strong",
+            airplane: false,
+            hardware_killed: false,
+            enabled: true,
+            connected: true,
+            strength: 90,
+        },
+    ];
+    for case in states {
+        println!(
+            "  {:<16} {}",
+            case.label,
+            icons::wifi(
+                case.airplane,
+                case.hardware_killed,
+                case.enabled,
+                case.connected,
+                case.strength
+            )
+        );
+    }
+
+    println!("\nnetwork rows");
+    for strength in [10u8, 40, 65, 95] {
+        println!(
+            "  {strength:>3}% open      {}\n  {strength:>3}% secured   {}",
+            icons::signal(strength, false),
+            icons::signal(strength, true)
+        );
+    }
+
+    println!("\ntiling");
+    println!("  {:<16} {}", "tiled", icons::tiling(true));
+    println!("  {:<16} {}", "floating", icons::tiling(false));
+
+    println!("\nsliders");
+    println!("  {:<16} {}", "volume muted", icons::volume(50.0, true));
+    println!("  {:<16} {}", "volume low", icons::volume(10.0, false));
+    println!("  {:<16} {}", "volume high", icons::volume(90.0, false));
+    println!(
+        "  {:<16} {}",
+        "brightness dim",
+        icons::brightness(1.0, true)
+    );
+    println!(
+        "  {:<16} {}",
+        "brightness high",
+        icons::brightness(90.0, false)
+    );
+
+    println!("\nfixed");
+    println!("  {:<16} {}", "applet", icons::applet());
+    println!("  {:<16} {}", "back", icons::back());
+    println!("  {:<16} {}", "dns", icons::dns());
+    println!("  {:<16} {}", "airplane", icons::airplane());
+    println!("  {:<16} {}", "game mode", icons::game_mode());
+    for (label, profile) in [
+        ("power saver", icons::PowerProfile::PowerSaver),
+        ("balanced", icons::PowerProfile::Balanced),
+        ("performance", icons::PowerProfile::Performance),
+    ] {
+        println!("  {label:<16} {}", icons::power_profile(profile));
+    }
+
+    0
 }
 
 pub async fn run() -> i32 {

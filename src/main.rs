@@ -39,6 +39,11 @@ fn main() -> cosmic::iced::Result {
         }
     }
 
+    // `--icons` shows what the active icon theme resolves each state to.
+    if std::env::args().skip(1).any(|arg| arg == "--icons") {
+        std::process::exit(check::icon_report());
+    }
+
     // `--check` probes every backend and prints what it found, without opening
     // a surface. See `check.rs` for why an applet needs this.
     if std::env::args().skip(1).any(|arg| arg == "--check") {

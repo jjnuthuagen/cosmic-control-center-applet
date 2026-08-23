@@ -409,8 +409,12 @@ pub fn game_mode() -> &'static str {
 
 /// A power-profiles-daemon profile.
 ///
-/// The `power-profile-*` names came in with power-profiles-daemon and are not in
-/// older themes, hence the generic fallbacks.
+/// The `power-profile-*` names came in with power-profiles-daemon. The COSMIC
+/// icon theme does not ship them — it inherits only Pop and hicolor, and neither
+/// has them — so on a stock COSMIC install these all fall through. The fallback
+/// is deliberately a low/medium/high battery-level progression rather than three
+/// identical icons: it carries the same ordering the profiles have. The stock
+/// battery applet has the same gap and solves it by not using icons at all.
 pub fn power_profile(profile: PowerProfile) -> &'static str {
     match profile {
         PowerProfile::PowerSaver => resolve(&[

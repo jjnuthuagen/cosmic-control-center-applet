@@ -105,6 +105,16 @@ cosmic-control-center-applet --check
 It probes every backend and prints what it found. Please include its output in
 any bug report.
 
+Icons are chosen from state and resolved against your active icon theme, falling
+back when a theme is missing a name. To see what your theme actually gives you:
+
+```sh
+cosmic-control-center-applet --icons
+```
+
+Anything listed as `image-missing-symbolic`, or the same name for two states that
+should look different, is worth reporting along with your theme name.
+
 ## Contributing
 
 Issues and PRs welcome. Before opening a PR:

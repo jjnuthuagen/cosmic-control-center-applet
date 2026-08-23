@@ -146,6 +146,19 @@ worth a pass in more than one icon theme.
 - [ ] Volume and brightness icons track their level and their muted/dimmed state.
 - [ ] Switch to a sparse icon theme: icons fall back to something sensible, and none render blank.
 
+`--icons` prints what the active theme resolves every state to, which is the
+quick version of the above:
+
+```sh
+cosmic-control-center-applet --icons
+```
+
+Note that searching the filesystem for an icon name is **not** a valid check —
+a name can exist in some installed theme while the active theme's inheritance
+chain never reaches it. On stock COSMIC the `power-profile-*` names do exactly
+this. `--icons` asks the same resolver the UI uses, so it is the only answer
+that counts.
+
 ### Degraded machines
 Worth checking on anything other than a laptop:
 - [ ] Desktop with no battery: no percentage, but power profiles still work.
