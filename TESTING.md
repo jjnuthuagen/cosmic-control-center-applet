@@ -20,7 +20,8 @@ modules:
   volume      ok       Wpctl, 45%
   brightness  ok       intel_backlight (max 19200), currently 60%
   gamemode    ok       0 client(s) registered, idle
-  desktop     ok       theme is dark, tiling on
+  tiling      ok       active workspace is tiled
+  desktop     ok       theme is dark
 ```
 
 **This is the first thing to run when a tile is missing.** A tile that is not
@@ -62,6 +63,8 @@ specific regressions listed below. They do **not** cover layout — see section 
 | `an_unknown_enterprise_network_is_not_offered_a_password_box` | A password field that cannot possibly work for 802.1X. |
 | `undimming_without_a_remembered_level_still_lights_the_screen` | Restoring brightness to nothing, leaving a black screen and a dead toggle. |
 | `a_game_holding_gamemode_cannot_be_switched_off_here` | The applet yanking GameMode out from under a running game. |
+| `battery_buckets_never_leave_the_family` | An out-of-range percentage producing an icon name no theme ships. |
+| `an_empty_candidate_list_yields_the_spec_fallback` | An icon lookup returning nothing and rendering blank. |
 
 ## 3. Manual checklist — the UI
 
@@ -129,13 +132,36 @@ tiles, the ghost slot and the accent fill are all theme-derived.
 
 ### Quick toggles
 - [ ] Dark mode switches the whole desktop, **and keeps switching on repeated presses**.
-- [ ] Tiling toggles window tiling and reads Tiled / Floating.
+- [ ] Tiling actually retiles the **current** workspace, not just future ones.
+- [ ] `cosmic-control-center-applet --toggle-tiling` flips it from a terminal and prints the new state.
+
+### Icons
+Icons are chosen from state and resolved against the active theme, so this is
+worth a pass in more than one icon theme.
+- [ ] Battery icon tracks the level, and shows charging separately from discharging.
+- [ ] A nearly-flat battery that is not charging shows the caution icon.
+- [ ] Bluetooth icon differs between off, on-with-nothing-connected, and connected.
+- [ ] Wi-Fi icon differs between airplane, off, disconnected, and connected — and tracks signal strength.
+- [ ] Tiling icon differs between tiled and floating.
+- [ ] Volume and brightness icons track their level and their muted/dimmed state.
+- [ ] Switch to a sparse icon theme: icons fall back to something sensible, and none render blank.
 
 ### Degraded machines
 Worth checking on anything other than a laptop:
 - [ ] Desktop with no battery: no percentage, but power profiles still work.
 - [ ] No Bluetooth adapter: the tile is absent, and the grid stays square.
 - [ ] Every module set to `false` in `config.toml`: the popup shows sliders only, no empty rows.
+
+## If theming looks wrong
+
+Applet popups follow the **panel's** appearance, not the desktop light/dark
+switch. Check `~/.config/cosmic/com.system76.CosmicPanel.Panel/v1/background`:
+if it is `Dark` or `Light` rather than `ThemeDefault`, the panel is pinned and
+every applet — stock ones included — will ignore the desktop theme. `opacity`
+alongside it is the frosted-glass control.
+
+Note also that cosmic-panel restarts every applet when the theme changes, so an
+open popup is destroyed rather than restyled.
 
 ## Rebuilding onto the panel
 
