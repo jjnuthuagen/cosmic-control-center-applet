@@ -35,7 +35,15 @@ Built in Rust with [libcosmic](https://github.com/pop-os/libcosmic) for the [COS
 | Brightness | `org.freedesktop.login1.Session.SetBrightness` (logind) |
 | Brightness | logind `SetBrightness` |
 | Volume | WirePlumber (`wpctl`), falling back to `pactl` |
+| Microphone | WirePlumber / PulseAudio, default source |
+| Keyboard backlight | logind `SetBrightness`, `leds` subsystem |
+| Media | MPRIS (`org.mpris.MediaPlayer2`) |
+| VPN | NetworkManager saved VPN profiles |
+| Do Not Disturb | COSMIC notifications config |
+| Keep awake | logind idle inhibitor |
+| Charge limit | UPower `EnableChargeThreshold` |
 | Game Mode | Feral GameMode (`com.feralinteractive.GameMode`) |
+| Your own | Any command, via `[[custom]]` in the config |
 
 Every backend is reachable **without root**, and that constraint drove the choices. Notably DNS goes through NetworkManager rather than systemd-resolved: `org.freedesktop.resolve1.set-dns-servers` is `auth_admin_keep` in polkit, so a resolved-based switcher would demand an administrator password on every single change. NetworkManager grants `settings.modify.own` outright.
 

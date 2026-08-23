@@ -1,25 +1,31 @@
 # Control Center configuration.
 #
-# Copy to ~/.config/cosmic-control-center-applet/config.toml and edit.
-# Every value below is the default, so an absent file behaves identically to
-# this one. Unknown keys are rejected rather than ignored, so a typo shows up
-# as a warning instead of silently doing nothing.
+# Written by the Settings window (right-click the panel button), and safe to
+# edit by hand. Every value below is the default, so an absent file behaves
+# identically to this one. Unknown keys are rejected rather than ignored, so a
+# typo shows up as a warning instead of silently doing nothing.
 
 [modules]
-# A module set to false is never constructed and never connects to its bus.
-# Modules also hide themselves when the hardware or daemon is missing, so a
-# desktop does not need to disable `battery` to avoid an empty tile — do it
-# only if you have a battery and still don't want to see it.
-wifi = true
-bluetooth = true
-battery = true
-dns = true
-volume = true
-brightness = true
-dark_mode = true
-tiling = true
-# Feral GameMode, shown on the power page when gamemoded is installed.
-gamemode = true
+# A control set to false here is never constructed and never connects to its
+# bus. Controls also hide themselves when the hardware or service they need is
+# missing, so a desktop does not need to disable `battery` to avoid an empty
+# tile — turn one off only when it works and you still don't want it.
+wifi               = true
+bluetooth          = true
+battery            = true
+dns                = true
+volume             = true
+microphone         = true
+brightness         = true
+keyboard_backlight = true   # hides itself if the keyboard has no backlight
+media              = true   # hides itself when no media player is running
+vpn                = true   # hides itself when no VPN profiles are saved
+dark_mode          = true
+tiling             = true
+do_not_disturb     = true
+keep_awake         = true
+gamemode           = true   # hides itself unless Feral GameMode is installed
+charge_threshold   = true   # hides itself unless the hardware supports it
 
 [appearance]
 # How strongly a tile shows that its control is on:
@@ -45,3 +51,16 @@ custom_providers = [
     # ["Home Pi-hole", "192.168.1.2"],
     # ["NextDNS", "45.90.28.0", "45.90.30.0"],
 ]
+
+# Tiles of your own, added after everything built in.
+#
+# `command` is a list, not a string, and runs directly rather than through a
+# shell — so an argument containing spaces stays one argument and nothing is
+# glob-expanded behind your back. If you want a pipeline, ask for one
+# explicitly: command = ["sh", "-c", "foo | bar"].
+#
+# [[custom]]
+# name = "Screenshot"
+# icon = "camera-photo-symbolic"     # optional; falls back if your theme lacks it
+# command = ["cosmic-screenshot", "--interactive=true"]
+# detail = "Select a region"         # optional second line

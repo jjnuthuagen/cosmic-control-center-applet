@@ -31,7 +31,7 @@ const PREVIEW_ICON: u16 = 24;
 ///
 /// A slice rather than a match arm per module so the list and the form cannot
 /// drift apart: adding a module means adding one row here.
-const MODULES: [(&str, &str); 9] = [
+const MODULES: &[(&str, &str)] = &[
     ("wifi", "wifi"),
     ("bluetooth", "bluetooth"),
     ("battery", "battery"),
@@ -41,6 +41,13 @@ const MODULES: [(&str, &str); 9] = [
     ("dark_mode", "dark-mode"),
     ("tiling", "tiling"),
     ("gamemode", "game-mode"),
+    ("microphone", "microphone"),
+    ("keyboard_backlight", "keyboard-backlight"),
+    ("media", "media"),
+    ("vpn", "vpn"),
+    ("do_not_disturb", "do-not-disturb"),
+    ("keep_awake", "keep-awake"),
+    ("charge_threshold", "charge-limit"),
 ];
 
 /// Which of the three icon sources is in use.
@@ -98,6 +105,13 @@ impl Settings {
             "dark_mode" => m.dark_mode,
             "tiling" => m.tiling,
             "gamemode" => m.gamemode,
+            "microphone" => m.microphone,
+            "keyboard_backlight" => m.keyboard_backlight,
+            "media" => m.media,
+            "vpn" => m.vpn,
+            "do_not_disturb" => m.do_not_disturb,
+            "keep_awake" => m.keep_awake,
+            "charge_threshold" => m.charge_threshold,
             _ => false,
         }
     }
@@ -114,6 +128,13 @@ impl Settings {
             "dark_mode" => m.dark_mode = value,
             "tiling" => m.tiling = value,
             "gamemode" => m.gamemode = value,
+            "microphone" => m.microphone = value,
+            "keyboard_backlight" => m.keyboard_backlight = value,
+            "media" => m.media = value,
+            "vpn" => m.vpn = value,
+            "do_not_disturb" => m.do_not_disturb = value,
+            "keep_awake" => m.keep_awake = value,
+            "charge_threshold" => m.charge_threshold = value,
             _ => {}
         }
     }
@@ -137,7 +158,7 @@ impl Settings {
             .push(text::title4(fl!("settings-controls")))
             .push(text::caption(fl!("settings-controls-detail")));
 
-        for (key, label) in MODULES {
+        for &(key, label) in MODULES {
             section = section.push(
                 row::with_capacity(2)
                     .align_y(Alignment::Center)

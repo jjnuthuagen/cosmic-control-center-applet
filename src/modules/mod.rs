@@ -13,12 +13,17 @@
 pub mod battery;
 pub mod bluetooth;
 pub mod brightness;
+pub mod caffeine;
+pub mod custom;
 pub mod dns;
 pub mod gamemode;
+pub mod keyboard;
+pub mod media;
 pub mod network;
 pub mod system;
 pub mod tiling;
 pub mod volume;
+pub mod vpn;
 
 use cosmic::iced::Subscription;
 use futures::{stream, StreamExt};

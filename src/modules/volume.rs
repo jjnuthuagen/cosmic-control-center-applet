@@ -25,6 +25,62 @@ use tokio::process::Command;
 
 use super::{poll_subscription, Availability};
 
+/// Which end of the audio stack a [`State`] controls.
+///
+/// Output and input differ only in which default node the CLI is pointed at, so
+/// they share every line of parsing and writing below. Duplicating this module
+/// for the microphone would mean two copies of the `wpctl` output format to keep
+/// in step.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum Direction {
+    #[default]
+    Output,
+    Input,
+}
+
+impl Direction {
+    fn wpctl_node(self) -> &'static str {
+        match self {
+            Direction::Output => "@DEFAULT_AUDIO_SINK@",
+            Direction::Input => "@DEFAULT_AUDIO_SOURCE@",
+        }
+    }
+
+    fn pactl_node(self) -> &'static str {
+        match self {
+            Direction::Output => "@DEFAULT_SINK@",
+            Direction::Input => "@DEFAULT_SOURCE@",
+        }
+    }
+
+    /// pactl uses different subcommands per direction, not just a node name.
+    fn pactl_verbs(self) -> (&'static str, &'static str, &'static str, &'static str) {
+        match self {
+            Direction::Output => (
+                "get-sink-volume",
+                "get-sink-mute",
+                "set-sink-volume",
+                "set-sink-mute",
+            ),
+            Direction::Input => (
+                "get-source-volume",
+                "get-source-mute",
+                "set-source-volume",
+                "set-source-mute",
+            ),
+        }
+    }
+
+    /// Subscription id. Must differ per direction or iced collapses the two
+    /// pollers into one and the microphone silently mirrors the speakers.
+    fn poll_id(self) -> &'static str {
+        match self {
+            Direction::Output => "volume-output",
+            Direction::Input => "volume-input",
+        }
+    }
+}
+
 /// Above 100% PipeWire applies software gain, which distorts. The slider stops
 /// at unity; anything louder is a deliberate act for a mixer, not a panel.
 const MAX_PERCENT: f64 = 100.0;
@@ -67,6 +123,7 @@ pub struct State {
     /// 0.0..=100.0.
     pub percent: Option<f64>,
     pub muted: bool,
+    direction: Direction,
 }
 
 #[derive(Debug, Clone)]
@@ -76,6 +133,13 @@ pub enum Event {
 }
 
 impl State {
+    pub fn new(direction: Direction) -> Self {
+        Self {
+            direction,
+            ..Self::default()
+        }
+    }
+
     pub fn update(&mut self, event: Event) {
         match event {
             Event::Sampled { percent, muted } => {
@@ -99,9 +163,10 @@ impl State {
         if unmute {
             self.muted = false;
         }
+        let direction = self.direction;
         async move {
-            if let Err(err) = write_volume(percent, unmute).await {
-                tracing::warn!("could not set volume: {err}");
+            if let Err(err) = write_volume(direction, percent, unmute).await {
+                tracing::warn!("could not set {direction:?} volume: {err}");
             }
         }
     }
@@ -109,31 +174,44 @@ impl State {
     pub fn toggle_mute(&mut self) -> impl std::future::Future<Output = ()> {
         self.muted = !self.muted;
         let muted = self.muted;
+        let direction = self.direction;
         async move {
-            if let Err(err) = write_mute(muted).await {
-                tracing::warn!("could not toggle mute: {err}");
+            if let Err(err) = write_mute(direction, muted).await {
+                tracing::warn!("could not toggle {direction:?} mute: {err}");
             }
         }
     }
 
     pub fn subscription(&self) -> Subscription<Event> {
-        poll_subscription("volume", Duration::from_millis(1000), || async {
-            Some(sample().await)
-        })
+        // The poll function is a plain fn pointer, so the direction cannot be
+        // captured — it is dispatched on inside instead, keyed by the id.
+        match self.direction {
+            Direction::Output => poll_subscription(
+                Direction::Output.poll_id(),
+                Duration::from_millis(1000),
+                || async { Some(sample(Direction::Output).await) },
+            ),
+            Direction::Input => poll_subscription(
+                Direction::Input.poll_id(),
+                Duration::from_millis(1000),
+                || async { Some(sample(Direction::Input).await) },
+            ),
+        }
     }
 }
 
-async fn sample() -> Event {
+async fn sample(direction: Direction) -> Event {
     let Some(backend) = Backend::detect() else {
         return Event::Unavailable;
     };
 
     let output = match backend {
-        Backend::Wpctl => run("wpctl", &["get-volume", "@DEFAULT_AUDIO_SINK@"]).await,
+        Backend::Wpctl => run("wpctl", &["get-volume", direction.wpctl_node()]).await,
         Backend::Pactl => {
             // pactl needs two calls; volume and mute are separate commands.
-            let volume = run("pactl", &["get-sink-volume", "@DEFAULT_SINK@"]).await;
-            let mute = run("pactl", &["get-sink-mute", "@DEFAULT_SINK@"]).await;
+            let (get_volume, get_mute, _, _) = direction.pactl_verbs();
+            let volume = run("pactl", &[get_volume, direction.pactl_node()]).await;
+            let mute = run("pactl", &[get_mute, direction.pactl_node()]).await;
             match (volume, mute) {
                 (Some(volume), Some(mute)) => Some(format!("{volume}\n{mute}")),
                 _ => None,
@@ -155,7 +233,7 @@ async fn sample() -> Event {
     })
 }
 
-async fn write_volume(percent: f64, unmute: bool) -> std::io::Result<()> {
+async fn write_volume(direction: Direction, percent: f64, unmute: bool) -> std::io::Result<()> {
     let Some(backend) = Backend::detect() else {
         return Ok(());
     };
@@ -163,33 +241,37 @@ async fn write_volume(percent: f64, unmute: bool) -> std::io::Result<()> {
         Backend::Wpctl => {
             // wpctl takes a 0.0-1.0 fraction, not a percentage.
             let fraction = format!("{:.3}", percent / 100.0);
-            run("wpctl", &["set-volume", "@DEFAULT_AUDIO_SINK@", &fraction]).await;
+            let node = direction.wpctl_node();
+            run("wpctl", &["set-volume", node, &fraction]).await;
             if unmute {
-                run("wpctl", &["set-mute", "@DEFAULT_AUDIO_SINK@", "0"]).await;
+                run("wpctl", &["set-mute", node, "0"]).await;
             }
         }
         Backend::Pactl => {
+            let (_, _, set_volume, set_mute) = direction.pactl_verbs();
+            let node = direction.pactl_node();
             let value = format!("{}%", percent.round() as u32);
-            run("pactl", &["set-sink-volume", "@DEFAULT_SINK@", &value]).await;
+            run("pactl", &[set_volume, node, &value]).await;
             if unmute {
-                run("pactl", &["set-sink-mute", "@DEFAULT_SINK@", "0"]).await;
+                run("pactl", &[set_mute, node, "0"]).await;
             }
         }
     }
     Ok(())
 }
 
-async fn write_mute(muted: bool) -> std::io::Result<()> {
+async fn write_mute(direction: Direction, muted: bool) -> std::io::Result<()> {
     let Some(backend) = Backend::detect() else {
         return Ok(());
     };
     let flag = if muted { "1" } else { "0" };
     match backend {
         Backend::Wpctl => {
-            run("wpctl", &["set-mute", "@DEFAULT_AUDIO_SINK@", flag]).await;
+            run("wpctl", &["set-mute", direction.wpctl_node(), flag]).await;
         }
         Backend::Pactl => {
-            run("pactl", &["set-sink-mute", "@DEFAULT_SINK@", flag]).await;
+            let (_, _, _, set_mute) = direction.pactl_verbs();
+            run("pactl", &[set_mute, direction.pactl_node(), flag]).await;
         }
     }
     Ok(())
@@ -239,9 +321,9 @@ fn parse_pactl(output: &str) -> Option<(f64, bool)> {
 }
 
 /// One-shot read for `--check`.
-pub async fn probe() -> Result<String, String> {
+pub async fn probe(direction: Direction) -> Result<String, String> {
     let backend = Backend::detect().ok_or("neither wpctl nor pactl found on PATH")?;
-    match sample().await {
+    match sample(direction).await {
         Event::Sampled { percent, muted } => Ok(format!(
             "{backend:?}, {percent:.0}%{}",
             if muted { ", muted" } else { "" }
@@ -253,6 +335,25 @@ pub async fn probe() -> Result<String, String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn each_direction_targets_a_different_node() {
+        // Sharing a node, or a subscription id, would make the microphone
+        // silently mirror the speakers.
+        assert_ne!(
+            Direction::Output.wpctl_node(),
+            Direction::Input.wpctl_node()
+        );
+        assert_ne!(
+            Direction::Output.pactl_node(),
+            Direction::Input.pactl_node()
+        );
+        assert_ne!(Direction::Output.poll_id(), Direction::Input.poll_id());
+        assert_ne!(
+            Direction::Output.pactl_verbs(),
+            Direction::Input.pactl_verbs()
+        );
+    }
 
     #[test]
     fn parses_wpctl_output() {

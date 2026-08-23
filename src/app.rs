@@ -20,7 +20,8 @@ use cosmic::{Application, Element};
 use crate::config::Config;
 use crate::fl;
 use crate::modules::{
-    battery, bluetooth, brightness, dns, gamemode, network, system, tiling, volume,
+    battery, bluetooth, brightness, caffeine, custom, dns, gamemode, keyboard, media, network,
+    system, tiling, volume, vpn,
 };
 use crate::ui::{
     icons, list_row, page_header, scrollable_page, slider_row, tile_grid, toggle_row, Spacing, Tile,
@@ -46,6 +47,7 @@ pub enum Page {
     Bluetooth,
     Battery,
     Dns,
+    Vpn,
 }
 
 #[derive(Debug, Clone)]
@@ -67,6 +69,20 @@ pub enum Message {
 
     ToggleDark,
     ToggleTiling,
+    ToggleDoNotDisturb,
+    ToggleKeepAwake,
+    CycleKeyboard,
+    ToggleChargeThreshold,
+    RunCustom(usize),
+
+    SetMicrophone(f64),
+    ToggleMicrophoneMute,
+
+    MediaPlayPause,
+    MediaNext,
+    MediaPrevious,
+
+    ToggleVpn(String),
 
     SetVolume(f64),
     ToggleMute,
@@ -88,6 +104,11 @@ pub enum Message {
     System(system::Event),
     GameMode(gamemode::Event),
     Tiling(tiling::Event),
+    Microphone(volume::Event),
+    Keyboard(keyboard::Event),
+    Media(media::Event),
+    Vpn(vpn::Event),
+    Caffeine(caffeine::Event),
 
     /// A backend write finished. State was updated optimistically, so there is
     /// nothing to do — but the task has to resolve into something.
@@ -109,6 +130,14 @@ pub struct App {
     system: system::State,
     gamemode: gamemode::State,
     tiling: tiling::State,
+    microphone: volume::State,
+    keyboard: keyboard::State,
+    media: media::State,
+    vpn: vpn::State,
+    caffeine: caffeine::State,
+    /// Validated at load so a broken entry is reported once, not silently
+    /// drawn as a tile that does nothing.
+    custom: Vec<custom::Tile>,
 }
 
 impl App {
@@ -146,6 +175,30 @@ impl App {
 
     fn show_dark_mode(&self) -> bool {
         self.config.modules.dark_mode && self.system.availability.is_shown()
+    }
+
+    fn show_microphone(&self) -> bool {
+        self.config.modules.microphone && self.microphone.availability.is_shown()
+    }
+
+    fn show_keyboard(&self) -> bool {
+        self.config.modules.keyboard_backlight && self.keyboard.availability.is_shown()
+    }
+
+    fn show_media(&self) -> bool {
+        self.config.modules.media && self.media.availability.is_shown()
+    }
+
+    fn show_vpn(&self) -> bool {
+        self.config.modules.vpn && self.vpn.availability.is_shown()
+    }
+
+    fn show_keep_awake(&self) -> bool {
+        self.config.modules.keep_awake && self.caffeine.availability.is_shown()
+    }
+
+    fn show_do_not_disturb(&self) -> bool {
+        self.config.modules.do_not_disturb && self.system.dnd_available
     }
 
     fn show_tiling(&self) -> bool {
@@ -274,6 +327,88 @@ impl App {
             );
         }
 
+        if self.show_vpn() {
+            let state = self
+                .vpn
+                .active_name()
+                .map_or_else(|| fl!("vpn-off"), str::to_string);
+            tiles.push(
+                Tile::new(
+                    icons::vpn(self.vpn.active_name().is_some()),
+                    fl!("vpn"),
+                    state,
+                )
+                .active(self.vpn.active_name().is_some())
+                .style(self.config.appearance.style)
+                .on_press(Message::Navigate(Page::Vpn))
+                .view(spacing),
+            );
+        }
+        if self.show_keyboard() {
+            tiles.push(
+                Tile::new(
+                    icons::keyboard(self.keyboard.is_on()),
+                    fl!("keyboard-backlight"),
+                    crate::i18n::lookup(self.keyboard.level_key(), None),
+                )
+                .active(self.keyboard.is_on())
+                .style(self.config.appearance.style)
+                .on_press(Message::CycleKeyboard)
+                .view(spacing),
+            );
+        }
+        if self.show_do_not_disturb() {
+            let state = if self.system.do_not_disturb {
+                fl!("on")
+            } else {
+                fl!("off")
+            };
+            tiles.push(
+                Tile::new(
+                    icons::do_not_disturb(self.system.do_not_disturb),
+                    fl!("do-not-disturb"),
+                    state,
+                )
+                .active(self.system.do_not_disturb)
+                .style(self.config.appearance.style)
+                .on_press(Message::ToggleDoNotDisturb)
+                .view(spacing),
+            );
+        }
+        if self.show_keep_awake() {
+            let state = if self.caffeine.is_on() {
+                fl!("on")
+            } else {
+                fl!("off")
+            };
+            tiles.push(
+                Tile::new(
+                    icons::keep_awake(self.caffeine.is_on()),
+                    fl!("keep-awake"),
+                    state,
+                )
+                .active(self.caffeine.is_on())
+                .style(self.config.appearance.style)
+                .on_press(Message::ToggleKeepAwake)
+                .view(spacing),
+            );
+        }
+
+        // User-defined tiles go last, after everything built in, so adding one
+        // never reshuffles the controls someone is used to.
+        for (index, entry) in self.custom.iter().enumerate() {
+            tiles.push(
+                Tile::new(
+                    icons::resolve_owned(&entry.icon),
+                    entry.name.clone(),
+                    entry.detail.clone().unwrap_or_else(|| entry.name.clone()),
+                )
+                .style(self.config.appearance.style)
+                .on_press(Message::RunCustom(index))
+                .view(spacing),
+            );
+        }
+
         let has_tiles = !tiles.is_empty();
         let mut content = column::with_capacity(8).spacing(spacing.section);
         for grid_row in tile_grid(tiles, spacing) {
@@ -309,6 +444,99 @@ impl App {
             ));
         }
 
+        if self.show_microphone() {
+            content = content.push(slider_row(
+                icons::microphone(
+                    self.microphone.percent.unwrap_or(0.0),
+                    self.microphone.muted,
+                ),
+                self.microphone.percent.unwrap_or(0.0),
+                Message::SetMicrophone,
+                Some(Message::ToggleMicrophoneMute),
+                !self.microphone.muted,
+                spacing,
+            ));
+        }
+
+        if self.show_media() {
+            content = content.push(divider::horizontal::default());
+            content = content.push(self.media_row(spacing));
+        }
+
+        content.into()
+    }
+
+    /// Now playing, with transport controls.
+    ///
+    /// A row rather than a tile: the track name needs the full width, and three
+    /// buttons will not fit in half of one.
+    fn media_row(&self, spacing: crate::ui::Spacing) -> Element<'_, Message> {
+        row::with_capacity(4)
+            .align_y(Alignment::Center)
+            .spacing(spacing.gap)
+            .push(
+                text::body(self.media.summary())
+                    .width(Length::Fill)
+                    .wrapping(cosmic::iced::widget::text::Wrapping::None),
+            )
+            .push(
+                button::icon(
+                    cosmic::widget::icon::from_name(icons::media_previous())
+                        .size(crate::ui::ICON_SIZE),
+                )
+                .padding(spacing.pad_y)
+                .on_press_maybe(self.media.can_previous.then_some(Message::MediaPrevious)),
+            )
+            .push(
+                button::icon(
+                    cosmic::widget::icon::from_name(icons::media_play_pause(self.media.playing))
+                        .size(crate::ui::ICON_SIZE),
+                )
+                .padding(spacing.pad_y)
+                .on_press(Message::MediaPlayPause),
+            )
+            .push(
+                button::icon(
+                    cosmic::widget::icon::from_name(icons::media_next()).size(crate::ui::ICON_SIZE),
+                )
+                .padding(spacing.pad_y)
+                .on_press_maybe(self.media.can_next.then_some(Message::MediaNext)),
+            )
+            .into()
+    }
+
+    // -- VPN ------------------------------------------------------------------
+
+    fn vpn_page(&self) -> Element<'_, Message> {
+        let spacing = self.spacing();
+        let mut content = column::with_capacity(8)
+            .spacing(spacing.section)
+            .push(page_header(
+                fl!("vpn"),
+                Message::Navigate(Page::Root),
+                spacing,
+            ));
+
+        for profile in &self.vpn.profiles {
+            let detail = if self.vpn.busy.as_deref() == Some(profile.uuid.as_str()) {
+                Some(fl!("connecting"))
+            } else if profile.active {
+                Some(fl!("connected"))
+            } else {
+                None
+            };
+
+            content = content.push(list_row(
+                icons::vpn(profile.active),
+                profile.name.clone(),
+                detail,
+                profile.active,
+                Some(Message::ToggleVpn(profile.uuid.clone())),
+                spacing,
+            ));
+        }
+
+        content = content.push(text::caption(fl!("vpn-add-in-settings")));
         content.into()
     }
 
@@ -483,6 +711,18 @@ impl App {
                 "performance-degraded",
                 reason = reason.clone()
             )));
+        }
+
+        if self.config.modules.charge_threshold && self.battery.charge_threshold_supported {
+            content = content.push(divider::horizontal::default());
+            content = content.push(toggle_row(
+                icons::battery(self.battery.percent, self.battery.charging),
+                fl!("charge-limit"),
+                Some(fl!("charge-limit-detail")),
+                self.battery.charge_threshold_enabled,
+                Some(Message::ToggleChargeThreshold),
+                spacing,
+            ));
         }
 
         // GameMode sits below the profiles with a divider, not among them. It is
@@ -698,6 +938,7 @@ impl Application for App {
     fn init(core: Core, _flags: ()) -> (Self, Task<Message>) {
         let config = Config::load();
         let dns = dns::State::new(&config.dns.custom_providers);
+        let custom = custom::usable(&config.custom);
         (
             Self {
                 core,
@@ -713,6 +954,12 @@ impl Application for App {
                 system: system::State::default(),
                 gamemode: gamemode::State::default(),
                 tiling: tiling::State::default(),
+                microphone: volume::State::new(volume::Direction::Input),
+                keyboard: keyboard::State::default(),
+                media: media::State::default(),
+                vpn: vpn::State::default(),
+                caffeine: caffeine::State::default(),
+                custom,
             },
             Task::none(),
         )
@@ -751,6 +998,7 @@ impl Application for App {
                     // the provider list actually changed.
                     self.dns = dns::State::new(&config.dns.custom_providers);
                 }
+                self.custom = custom::usable(&config.custom);
                 self.config = config;
 
                 let id = window::Id::unique();
@@ -831,6 +1079,50 @@ impl Application for App {
             },
 
             Message::ToggleDark => run(self.system.toggle_dark()),
+            Message::ToggleDoNotDisturb => run(self.system.toggle_do_not_disturb()),
+            Message::ToggleKeepAwake => match self.caffeine.toggle() {
+                Some(future) => Task::perform(future, |event| {
+                    cosmic::action::app(Message::Caffeine(event))
+                }),
+                // Switching off is just closing the descriptor, which already
+                // happened inside `toggle`.
+                None => Task::none(),
+            },
+            Message::CycleKeyboard => match self.keyboard.cycle() {
+                Some(future) => run(future),
+                None => Task::none(),
+            },
+            Message::ToggleChargeThreshold => match self.battery.toggle_charge_threshold() {
+                Some(future) => run(future),
+                None => Task::none(),
+            },
+            Message::RunCustom(index) => {
+                if let Some(entry) = self.custom.get(index) {
+                    entry.run();
+                }
+                Task::none()
+            }
+
+            Message::SetMicrophone(percent) => run(self.microphone.set(percent)),
+            Message::ToggleMicrophoneMute => run(self.microphone.toggle_mute()),
+
+            Message::MediaPlayPause => match self.media.play_pause() {
+                Some(future) => run(future),
+                None => Task::none(),
+            },
+            Message::MediaNext => match self.media.next() {
+                Some(future) => run(future),
+                None => Task::none(),
+            },
+            Message::MediaPrevious => match self.media.previous() {
+                Some(future) => run(future),
+                None => Task::none(),
+            },
+
+            Message::ToggleVpn(uuid) => match self.vpn.toggle(&uuid) {
+                Some(future) => run(future),
+                None => Task::none(),
+            },
             Message::ToggleTiling => run(self.tiling.toggle()),
 
             Message::SetVolume(percent) => run(self.volume.set(percent)),
@@ -901,12 +1193,32 @@ impl Application for App {
                 self.tiling.update(event);
                 Task::none()
             }
+            Message::Microphone(event) => {
+                self.microphone.update(event);
+                Task::none()
+            }
+            Message::Keyboard(event) => {
+                self.keyboard.update(event);
+                Task::none()
+            }
+            Message::Media(event) => {
+                self.media.update(event);
+                Task::none()
+            }
+            Message::Vpn(event) => {
+                self.vpn.update(event);
+                Task::none()
+            }
+            Message::Caffeine(event) => {
+                self.caffeine.update(event);
+                Task::none()
+            }
             Message::Done => Task::none(),
         }
     }
 
     fn subscription(&self) -> Subscription<Message> {
-        let mut subscriptions = Vec::with_capacity(9);
+        let mut subscriptions = Vec::with_capacity(15);
         let open = self.popup.is_some();
 
         // A module switched off in config contributes no subscription, so it
@@ -943,6 +1255,24 @@ impl Application for App {
         if self.config.modules.gamemode && open {
             subscriptions.push(self.gamemode.subscription().map(Message::GameMode));
         }
+        if self.config.modules.microphone && open {
+            subscriptions.push(self.microphone.subscription().map(Message::Microphone));
+        }
+        if self.config.modules.keyboard_backlight && open {
+            subscriptions.push(self.keyboard.subscription().map(Message::Keyboard));
+        }
+        if self.config.modules.media && open {
+            subscriptions.push(self.media.subscription().map(Message::Media));
+        }
+        if self.config.modules.keep_awake && open {
+            subscriptions.push(self.caffeine.subscription().map(Message::Caffeine));
+        }
+        // VPN state is signal-free, so it polls — but unlike the others it must
+        // keep running while the popup is closed, or the tile would show a
+        // stale connection the moment it reopens.
+        if self.config.modules.vpn {
+            subscriptions.push(self.vpn.subscription().map(Message::Vpn));
+        }
 
         Subscription::batch(subscriptions)
     }
@@ -973,6 +1303,7 @@ impl Application for App {
             Page::Bluetooth => self.bluetooth_page(),
             Page::Battery => self.battery_page(),
             Page::Dns => self.dns_page(),
+            Page::Vpn => self.vpn_page(),
         });
 
         self.core

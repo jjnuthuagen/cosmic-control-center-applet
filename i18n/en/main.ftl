@@ -78,6 +78,36 @@ volume = Volume
 volume-muted = Muted
 brightness = Brightness
 
+# -- Shared state -------------------------------------------------------------
+on = On
+off = Off
+
+# -- Microphone ---------------------------------------------------------------
+microphone = Microphone
+microphone-muted = Muted
+
+# -- Keyboard backlight -------------------------------------------------------
+keyboard-backlight = Keyboard Backlight
+keyboard-off = Off
+keyboard-low = Low
+keyboard-medium = Medium
+keyboard-high = High
+
+# -- Media --------------------------------------------------------------------
+media = Media
+media-nothing-playing = Nothing playing
+
+# -- VPN ----------------------------------------------------------------------
+vpn = VPN
+vpn-off = Not connected
+vpn-add-in-settings = Add or edit VPN connections in Settings.
+
+# -- Other toggles ------------------------------------------------------------
+do-not-disturb = Do Not Disturb
+keep-awake = Keep Awake
+charge-limit = Limit charging
+charge-limit-detail = Stop charging before full to reduce battery wear.
+
 # -- Settings window ----------------------------------------------------------
 settings = Settings
 close = Close

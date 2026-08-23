@@ -452,6 +452,144 @@ fn named_handle(name: &'static str, size: u16) -> cosmic::widget::icon::Handle {
         .handle()
 }
 
+/// VPN, by whether a tunnel is up.
+pub fn vpn(connected: bool) -> &'static str {
+    if connected {
+        resolve(&[
+            "network-vpn-symbolic",
+            "network-vpn-acquiring-symbolic",
+            "channel-secure-symbolic",
+            "network-wired-symbolic",
+        ])
+    } else {
+        resolve(&[
+            "network-vpn-disconnected-symbolic",
+            "network-vpn-disabled-symbolic",
+            "network-vpn-symbolic",
+            "network-wired-symbolic",
+        ])
+    }
+}
+
+/// Keyboard backlight, by whether it is lit.
+pub fn keyboard(lit: bool) -> &'static str {
+    if lit {
+        resolve(&[
+            "keyboard-brightness-symbolic",
+            "input-keyboard-symbolic",
+            "display-brightness-high-symbolic",
+        ])
+    } else {
+        resolve(&[
+            "keyboard-brightness-off-symbolic",
+            "keyboard-brightness-symbolic",
+            "input-keyboard-symbolic",
+            "display-brightness-low-symbolic",
+        ])
+    }
+}
+
+/// Do Not Disturb.
+pub fn do_not_disturb(on: bool) -> &'static str {
+    if on {
+        resolve(&[
+            "notification-disabled-symbolic",
+            "preferences-system-notifications-symbolic",
+            "dialog-information-symbolic",
+        ])
+    } else {
+        resolve(&[
+            "notification-symbolic",
+            "preferences-system-notifications-symbolic",
+            "dialog-information-symbolic",
+        ])
+    }
+}
+
+/// Keep awake.
+pub fn keep_awake(on: bool) -> &'static str {
+    if on {
+        resolve(&[
+            "my-caffeine-on-symbolic",
+            "preferences-desktop-screensaver-symbolic",
+            "weather-clear-symbolic",
+        ])
+    } else {
+        resolve(&[
+            "my-caffeine-off-symbolic",
+            "preferences-desktop-screensaver-symbolic",
+            "weather-clear-night-symbolic",
+        ])
+    }
+}
+
+/// Microphone, by level and mute.
+pub fn microphone(percent: f64, muted: bool) -> &'static str {
+    if muted || percent <= 0.0 {
+        return resolve(&[
+            "microphone-sensitivity-muted-symbolic",
+            "audio-input-microphone-muted-symbolic",
+            "audio-input-microphone-symbolic",
+        ]);
+    }
+    match percent {
+        p if p >= 66.0 => resolve(&[
+            "microphone-sensitivity-high-symbolic",
+            "audio-input-microphone-symbolic",
+        ]),
+        p if p >= 33.0 => resolve(&[
+            "microphone-sensitivity-medium-symbolic",
+            "audio-input-microphone-symbolic",
+        ]),
+        _ => resolve(&[
+            "microphone-sensitivity-low-symbolic",
+            "audio-input-microphone-symbolic",
+        ]),
+    }
+}
+
+/// Transport controls.
+pub fn media_play_pause(playing: bool) -> &'static str {
+    if playing {
+        resolve(&["media-playback-pause-symbolic"])
+    } else {
+        resolve(&["media-playback-start-symbolic"])
+    }
+}
+
+pub fn media_next() -> &'static str {
+    resolve(&["media-skip-forward-symbolic", "go-next-symbolic"])
+}
+
+pub fn media_previous() -> &'static str {
+    resolve(&["media-skip-backward-symbolic", "go-previous-symbolic"])
+}
+
+/// Resolve a name that is not known at compile time.
+///
+/// Used for user-defined tiles, whose icon comes from the config file. Returns
+/// an owned string because there is no `'static` name to hand back: the caller
+/// keeps it alive for the widget.
+///
+/// Falls back to a generic executable glyph rather than rendering blank, so a
+/// typo in a config file still produces a pressable tile.
+pub fn resolve_owned(name: &str) -> String {
+    if !name.is_empty()
+        && cosmic::widget::icon::from_name(name.to_string())
+            .path()
+            .is_some()
+    {
+        return name.to_string();
+    }
+    tracing::debug!("custom tile icon `{name}` did not resolve");
+    resolve(&[
+        "application-x-executable-symbolic",
+        "system-run-symbolic",
+        "preferences-system-symbolic",
+    ])
+    .to_string()
+}
+
 /// The default panel button.
 pub fn applet() -> &'static str {
     resolve(&[

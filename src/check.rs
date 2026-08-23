@@ -13,7 +13,8 @@
 
 use crate::config::Config;
 use crate::modules::{
-    battery, bluetooth, brightness, dns, gamemode, network, system, tiling, volume,
+    battery, bluetooth, brightness, caffeine, custom, dns, gamemode, keyboard, media, network,
+    system, tiling, volume, vpn,
 };
 use crate::ui::icons;
 
@@ -240,7 +241,17 @@ pub async fn run() -> i32 {
         Report {
             name: "volume",
             enabled: config.modules.volume,
-            result: volume::probe().await,
+            result: volume::probe(volume::Direction::Output).await,
+        },
+        Report {
+            name: "microphone",
+            enabled: config.modules.microphone,
+            result: volume::probe(volume::Direction::Input).await,
+        },
+        Report {
+            name: "keyboard",
+            enabled: config.modules.keyboard_backlight,
+            result: keyboard::probe(),
         },
         Report {
             name: "brightness",
@@ -256,6 +267,27 @@ pub async fn run() -> i32 {
             name: "tiling",
             enabled: config.modules.tiling,
             result: tiling::probe(),
+        },
+        Report {
+            name: "media",
+            enabled: config.modules.media,
+            result: media::probe().await,
+        },
+        Report {
+            name: "vpn",
+            enabled: config.modules.vpn,
+            result: vpn::probe().await,
+        },
+        Report {
+            name: "keep-awake",
+            enabled: config.modules.keep_awake,
+            result: caffeine::probe().await,
+        },
+        Report {
+            name: "custom",
+            // Always considered on: the list being empty is what turns it off.
+            enabled: true,
+            result: custom::probe(&config.custom),
         },
         Report {
             name: "desktop",

@@ -21,6 +21,9 @@ pub struct Config {
     pub modules: Modules,
     pub appearance: Appearance,
     pub dns: Dns,
+    /// User-defined tiles that run a command. See [`crate::modules::custom`].
+    #[serde(default)]
+    pub custom: Vec<crate::modules::custom::Tile>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
@@ -35,6 +38,13 @@ pub struct Modules {
     pub dark_mode: bool,
     pub tiling: bool,
     pub gamemode: bool,
+    pub microphone: bool,
+    pub keyboard_backlight: bool,
+    pub do_not_disturb: bool,
+    pub keep_awake: bool,
+    pub media: bool,
+    pub vpn: bool,
+    pub charge_threshold: bool,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Deserialize, Serialize)]
@@ -115,6 +125,13 @@ impl Default for Modules {
             dark_mode: true,
             tiling: true,
             gamemode: true,
+            microphone: true,
+            keyboard_backlight: true,
+            do_not_disturb: true,
+            keep_awake: true,
+            media: true,
+            vpn: true,
+            charge_threshold: true,
         }
     }
 }

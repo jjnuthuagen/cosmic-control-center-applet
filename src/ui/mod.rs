@@ -88,7 +88,7 @@ const MAX_STATE_CHARS: usize = 14;
 
 /// A grid tile: an icon and the thing's current state.
 pub struct Tile<'a, Msg> {
-    icon_name: &'a str,
+    icon_name: std::borrow::Cow<'a, str>,
     state: String,
     /// Full name of the control, shown on hover. The tile deliberately has no
     /// visible name label — this is where the discoverability goes instead.
@@ -99,9 +99,13 @@ pub struct Tile<'a, Msg> {
 }
 
 impl<'a, Msg: Clone + 'static> Tile<'a, Msg> {
-    pub fn new(icon_name: &'a str, name: impl Into<String>, state: impl Into<String>) -> Self {
+    pub fn new(
+        icon_name: impl Into<std::borrow::Cow<'a, str>>,
+        name: impl Into<String>,
+        state: impl Into<String>,
+    ) -> Self {
         Self {
-            icon_name,
+            icon_name: icon_name.into(),
             state: state.into(),
             name: name.into(),
             active: false,
@@ -133,9 +137,10 @@ impl<'a, Msg: Clone + 'static> Tile<'a, Msg> {
         // behaved: you learn which power profile is active by opening it.
         let signalled = self.active && self.style != TileStyle::Low;
 
+        let icon_name = self.icon_name.into_owned();
         let glyph: Element<'a, Msg> = match self.style {
-            TileStyle::Medium => icon_base(self.icon_name, signalled, spacing),
-            _ => icon::from_name(self.icon_name).size(ICON_SIZE).into(),
+            TileStyle::Medium => icon_base(icon_name, signalled, spacing),
+            _ => icon::from_name(icon_name).size(ICON_SIZE).into(),
         };
 
         let content = row::with_capacity(2)
@@ -185,7 +190,7 @@ impl<'a, Msg: Clone + 'static> Tile<'a, Msg> {
 /// blue in light mode. A tint is unmistakably the accent and keeps the glyph
 /// legible.
 fn icon_base<'a, Msg: 'static>(
-    icon_name: &'a str,
+    icon_name: String,
     active: bool,
     spacing: Spacing,
 ) -> Element<'a, Msg> {

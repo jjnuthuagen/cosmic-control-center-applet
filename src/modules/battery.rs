@@ -46,6 +46,15 @@ trait PowerProfiles {
     default_path = "/org/freedesktop/UPower/devices/DisplayDevice"
 )]
 trait Device {
+    /// Stop charging near a set level to reduce wear. Not all hardware can:
+    /// `ChargeThresholdSettingsSupported` is a bitfield, and zero means no.
+    fn enable_charge_threshold(&self, enable: bool) -> zbus::Result<()>;
+
+    #[zbus(property)]
+    fn charge_threshold_enabled(&self) -> zbus::Result<bool>;
+    #[zbus(property)]
+    fn charge_threshold_settings_supported(&self) -> zbus::Result<u32>;
+
     #[zbus(property)]
     fn percentage(&self) -> zbus::Result<f64>;
     #[zbus(property)]
@@ -111,6 +120,10 @@ pub struct State {
     pub supported_profiles: Vec<Profile>,
     /// Non-empty when the daemon is throttling, e.g. "lap-detected".
     pub performance_degraded: Option<String>,
+
+    /// Whether this hardware can limit its charge at all.
+    pub charge_threshold_supported: bool,
+    pub charge_threshold_enabled: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -119,6 +132,8 @@ pub enum Event {
         present: bool,
         percent: f64,
         charging: bool,
+        charge_threshold_supported: bool,
+        charge_threshold_enabled: bool,
     },
     /// power-profiles-daemon answered. An empty `supported` means it is running
     /// but offers nothing usable; a daemon that is not running produces no
@@ -142,7 +157,11 @@ impl State {
                 present,
                 percent,
                 charging,
+                charge_threshold_supported,
+                charge_threshold_enabled,
             } => {
+                self.charge_threshold_supported = charge_threshold_supported;
+                self.charge_threshold_enabled = charge_threshold_enabled;
                 self.battery = if present {
                     Availability::Available
                 } else {
@@ -176,6 +195,20 @@ impl State {
                 tracing::warn!("could not switch power profile: {err}");
             }
         }
+    }
+
+    /// Turn the charge limit on or off.
+    pub fn toggle_charge_threshold(&mut self) -> Option<impl std::future::Future<Output = ()>> {
+        if !self.charge_threshold_supported {
+            return None;
+        }
+        self.charge_threshold_enabled = !self.charge_threshold_enabled;
+        let enable = self.charge_threshold_enabled;
+        Some(async move {
+            if let Err(err) = write_charge_threshold(enable).await {
+                tracing::warn!("could not change the charge threshold: {err}");
+            }
+        })
     }
 
     pub fn subscription(&self) -> Subscription<Event> {
@@ -246,7 +279,23 @@ async fn read_battery(proxy: &DeviceProxy<'_>) -> zbus::Result<Event> {
         present,
         percent,
         charging,
+        // A zero bitfield means the hardware cannot do this, which is the
+        // common case — most laptops have no charge limit at all.
+        charge_threshold_supported: proxy
+            .charge_threshold_settings_supported()
+            .await
+            .unwrap_or(0)
+            != 0,
+        charge_threshold_enabled: proxy.charge_threshold_enabled().await.unwrap_or(false),
     })
+}
+
+async fn write_charge_threshold(enable: bool) -> zbus::Result<()> {
+    let connection = zbus::Connection::system().await?;
+    DeviceProxy::new(&connection)
+        .await?
+        .enable_charge_threshold(enable)
+        .await
 }
 
 async fn read_profiles(proxy: &PowerProfilesProxy<'_>) -> zbus::Result<Event> {
@@ -304,7 +353,17 @@ pub async fn probe() -> Result<String, String> {
                 present: true,
                 percent,
                 charging,
-            }) => format!("{percent:.0}%{}", if charging { " charging" } else { "" }),
+                charge_threshold_supported,
+                ..
+            }) => format!(
+                "{percent:.0}%{}{}",
+                if charging { " charging" } else { "" },
+                if charge_threshold_supported {
+                    ", charge limit supported"
+                } else {
+                    ""
+                }
+            ),
             Ok(_) => "no battery present".to_string(),
             Err(err) => format!("unreadable ({err})"),
         },
@@ -359,6 +418,8 @@ mod tests {
             present: false,
             percent: 0.0,
             charging: false,
+            charge_threshold_supported: false,
+            charge_threshold_enabled: false,
         });
         state.update(Event::Profiles {
             active: Some(Profile::Balanced),
@@ -380,6 +441,8 @@ mod tests {
             present: true,
             percent: 80.0,
             charging: false,
+            charge_threshold_supported: false,
+            charge_threshold_enabled: false,
         });
         state.update(Event::Profiles {
             active: None,
@@ -405,12 +468,44 @@ mod tests {
     }
 
     #[test]
+    fn unsupported_hardware_offers_no_charge_limit() {
+        // Most laptops cannot do this; offering a switch that silently fails
+        // would be worse than not offering one.
+        let mut state = State::default();
+        state.update(Event::Battery {
+            present: true,
+            percent: 80.0,
+            charging: false,
+            charge_threshold_supported: false,
+            charge_threshold_enabled: false,
+        });
+        assert!(!state.charge_threshold_supported);
+        assert!(state.toggle_charge_threshold().is_none());
+    }
+
+    #[test]
+    fn supported_hardware_can_flip_the_charge_limit() {
+        let mut state = State::default();
+        state.update(Event::Battery {
+            present: true,
+            percent: 80.0,
+            charging: false,
+            charge_threshold_supported: true,
+            charge_threshold_enabled: false,
+        });
+        assert!(state.toggle_charge_threshold().is_some());
+        assert!(state.charge_threshold_enabled);
+    }
+
+    #[test]
     fn out_of_range_percentages_are_clamped() {
         let mut state = State::default();
         state.update(Event::Battery {
             present: true,
             percent: 137.0,
             charging: true,
+            charge_threshold_supported: false,
+            charge_threshold_enabled: false,
         });
         assert_eq!(state.percent, Some(100.0));
     }
