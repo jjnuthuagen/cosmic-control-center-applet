@@ -23,7 +23,7 @@ optdepends=(
 )
 
 source=("$pkgname-$pkgver.tar.gz::$url/archive/refs/tags/v$pkgver.tar.gz")
-sha256sums=('c9c488aea0f80c93963f17064fbb7196b242ce1994b6d35eee25213f8254e045')
+sha256sums=('2490af74863d0a9512457de08243b06726927155e3efb19acb3c6099771df838')
 
 prepare() {
     cd "$pkgname-$pkgver"
