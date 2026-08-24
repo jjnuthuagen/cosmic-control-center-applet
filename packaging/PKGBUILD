@@ -1,4 +1,4 @@
-# Maintainer: James John <james.john.nuthall@gmail.com>
+# Maintainer: jjnuthuagen <246846236+jjnuthuagen@users.noreply.github.com>
 pkgname=cosmic-control-center-applet
 pkgver=0.1.1
 pkgrel=1
@@ -54,8 +54,8 @@ package() {
 
     install -Dm0755 "target/release/$pkgname" "$pkgdir/usr/bin/$pkgname"
     install -Dm0644 \
-        "data/dev.jamesjohn.CosmicControlCenter.desktop" \
-        "$pkgdir/usr/share/applications/dev.jamesjohn.CosmicControlCenter.desktop"
+        "data/io.github.jjnuthuagen.ControlCenter.desktop" \
+        "$pkgdir/usr/share/applications/io.github.jjnuthuagen.ControlCenter.desktop"
 
     # hicolor so the preset panel icons resolve under any icon theme.
     install -Dm0644 -t "$pkgdir/usr/share/icons/hicolor/scalable/apps" data/icons/*.svg

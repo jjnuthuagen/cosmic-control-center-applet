@@ -1020,7 +1020,7 @@ impl Application for App {
     type Flags = ();
     type Message = Message;
 
-    const APP_ID: &'static str = "dev.jamesjohn.CosmicControlCenter";
+    const APP_ID: &'static str = "io.github.jjnuthuagen.ControlCenter";
 
     fn core(&self) -> &Core {
         &self.core

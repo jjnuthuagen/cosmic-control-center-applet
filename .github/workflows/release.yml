@@ -50,7 +50,7 @@ jobs:
           mkdir -p "$stage"
 
           cp target/release/cosmic-control-center-applet "$stage/"
-          cp data/dev.jamesjohn.CosmicControlCenter.desktop "$stage/"
+          cp data/io.github.jjnuthuagen.ControlCenter.desktop "$stage/"
           cp data/config.example.toml "$stage/"
           mkdir -p "$stage/icons"
           cp data/icons/*.svg "$stage/icons/"
@@ -65,8 +65,8 @@ jobs:
 
           install -Dm0755 "$here/cosmic-control-center-applet" \
               "$prefix/bin/cosmic-control-center-applet"
-          install -Dm0644 "$here/dev.jamesjohn.CosmicControlCenter.desktop" \
-              "$prefix/share/applications/dev.jamesjohn.CosmicControlCenter.desktop"
+          install -Dm0644 "$here/io.github.jjnuthuagen.ControlCenter.desktop" \
+              "$prefix/share/applications/io.github.jjnuthuagen.ControlCenter.desktop"
           for icon in "$here"/icons/*.svg; do
               install -Dm0644 "$icon" \
                   "$prefix/share/icons/hicolor/scalable/apps/$(basename "$icon")"

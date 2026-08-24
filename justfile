@@ -1,5 +1,5 @@
 name := 'cosmic-control-center-applet'
-appid := 'dev.jamesjohn.CosmicControlCenter'
+appid := 'io.github.jjnuthuagen.ControlCenter'
 
 # User-local install by default. For system-wide: `just prefix=/usr install`.
 prefix := env_var('HOME') / '.local'
