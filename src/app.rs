@@ -246,17 +246,18 @@ impl App {
     }
 
     fn battery_state_text(&self) -> String {
+        // Percentage alone when there is a battery. "17% · Balanced" is too
+        // long for a tile — it wrapped to two lines, and truncating it to
+        // "17% · Balan…" is worse than not showing the profile at all. The
+        // profile is one tap away on the page, and the charge is the thing you
+        // glance at the grid for.
         match (self.battery.percent, self.battery.active_profile) {
-            (Some(percent), Some(profile)) => format!(
-                "{} · {}",
-                fl!("battery-charge", percent = percent.round() as i64),
-                fl!(profile.l10n_key())
-            ),
-            (Some(percent), None) if self.battery.charging => {
+            (Some(percent), _) if self.battery.charging => {
                 fl!("battery-charging", percent = percent.round() as i64)
             }
-            (Some(percent), None) => fl!("battery-charge", percent = percent.round() as i64),
-            // The desktop case: no battery, but power profiles still work.
+            (Some(percent), _) => fl!("battery-charge", percent = percent.round() as i64),
+            // No battery: the profile is all there is to show, and on a desktop
+            // it is the reason the tile exists at all.
             (None, Some(profile)) => fl!(profile.l10n_key()),
             (None, None) => fl!("battery-no-battery"),
         }

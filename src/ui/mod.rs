@@ -147,7 +147,16 @@ impl<'a, Msg: Clone + 'static> Tile<'a, Msg> {
             .align_y(Alignment::Center)
             .spacing(spacing.gap)
             .push(glyph)
-            .push(text::body(truncate(&self.state, MAX_STATE_CHARS)).width(Length::Fill));
+            .push(
+                text::body(truncate(&self.state, MAX_STATE_CHARS))
+                    .width(Length::Fill)
+                    // Tiles are a fixed height sized for one line. Without this
+                    // a long state string wraps, and the tile's content is
+                    // squeezed and sits out of line with its neighbour.
+                    // Character truncation alone is not enough: it counts
+                    // characters, and what overflows is pixels.
+                    .wrapping(cosmic::iced::widget::text::Wrapping::None),
+            );
 
         // Only `High` tints the whole tile. `Medium` carries the signal on the
         // icon's base instead, so the tile itself must stay neutral or the two
