@@ -72,6 +72,24 @@ Layout, hit targets and drag behaviour cannot be asserted in a unit test. Walk
 this before tagging a release. **Do it twice, once in each theme**, since the
 tiles, the ghost slot and the accent fill are all theme-derived.
 
+### Start here
+
+These have **never been seen working** — everything below them has at least been
+seen once. If you only have ten minutes, do this section.
+
+- [ ] Right-click the panel button: the Settings window opens.
+- [ ] Settings lists every control as a switch; turning one off removes its tile.
+- [ ] Settings offers the four preset panel icons, and picking one changes the panel button.
+- [ ] Typing an icon name or an image path under "custom" previews it live; nonsense falls back rather than going blank.
+- [ ] The three tile styles each look distinct: **high** fills the whole tile, **medium** puts the accent on the icon's base only, **low** never shows an on state at all.
+- [ ] Under **low**, opening Battery still shows which power profile is selected.
+- [ ] Wi-Fi page: selecting a secured network you have no password for opens its **own page**, not an inline field.
+- [ ] That page has a back button returning to the network list, and cancel does the same.
+- [ ] A wrong password keeps you on that page with the text still there to correct.
+- [ ] The network list shows five, with a "Show 5 more" button when there are more.
+- [ ] Battery page shows time remaining above the profiles (unplug first — on mains there is no estimate).
+- [ ] Game Mode appears directly after Performance in the same list, not under a divider.
+
 ### Panel and popup
 - [ ] Icon appears on the panel and is vertically centred.
 - [ ] Clicking opens the popup; clicking again closes it.
@@ -85,6 +103,23 @@ tiles, the ghost slot and the accent fill are all theme-derived.
 - [ ] Hovering a tile shows its name.
 - [ ] A long SSID or device name elides with `…` rather than overflowing or wrapping.
 - [ ] Tiles that are "on" show the accent fill.
+
+### Microphone
+- [ ] Its slider sits under volume and moves independently of it.
+- [ ] Muting the microphone does not mute the speakers, and vice versa.
+
+### Keep awake, Do Not Disturb, custom tiles
+- [ ] Keep awake toggles; while on, the screen does not blank on its idle timeout.
+- [ ] Switching keep awake off releases it — the screen blanks normally again.
+- [ ] Do Not Disturb toggles, and notifications stop appearing while it is on.
+- [ ] A `[[custom]]` tile appears after everything built in, and pressing it runs the command.
+- [ ] A custom entry with an empty `command` is ignored rather than drawn as a dead tile.
+
+### VPN
+Needs a saved VPN profile; the tile hides without one.
+- [ ] The tile shows the active profile's name, or "Not connected".
+- [ ] Its page lists saved profiles; tapping one connects and shows "Connecting…".
+- [ ] Tapping a connected one disconnects.
 
 ### Sliders
 - [ ] Volume and brightness handles sit at the current value on open.
