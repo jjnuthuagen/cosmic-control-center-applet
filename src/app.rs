@@ -1457,11 +1457,13 @@ fn open_settings_window() {
         return;
     };
 
-    match std::process::Command::new(executable)
-        .arg("--settings")
-        .spawn()
-    {
-        Ok(child) => tracing::debug!("opened Settings as pid {}", child.id()),
+    let mut command = std::process::Command::new(executable);
+    command.arg("--settings");
+    // Reaped rather than plain `spawn`: the applet outlives every Settings
+    // window it opens, so an unreaped child would sit in the process table as a
+    // zombie for the rest of the session.
+    match crate::process::spawn_and_reap(command) {
+        Ok(pid) => tracing::debug!("opened Settings as pid {pid}"),
         Err(err) => tracing::error!("could not open Settings: {err}"),
     }
 }

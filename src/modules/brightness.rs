@@ -26,6 +26,17 @@ const MIN_PERCENT: f64 = 1.0;
 /// Where undimming lands if the remembered level was lost.
 const DEFAULT_RESTORE_PERCENT: f64 = 50.0;
 
+/// How many polls a locally-set level is held for while the hardware catches
+/// up. At the 1.5s poll interval this is a few seconds — long enough for a
+/// logind write to land, short enough that a write which silently failed is not
+/// left on screen indefinitely.
+const SETTLE_SAMPLES: u8 = 4;
+
+/// Smallest disagreement worth holding for, in percent. Devices quantise: a
+/// backlight with a coarse range cannot land on an arbitrary percentage, so the
+/// floor is widened to one raw step in [`Pending::tolerance`].
+const MIN_SETTLE_TOLERANCE: f64 = 2.0;
+
 #[zbus::proxy(
     interface = "org.freedesktop.login1.Session",
     default_service = "org.freedesktop.login1",
@@ -47,6 +58,35 @@ pub struct State {
     /// Level to come back to when undimming.
     restore: Option<f64>,
     device: Option<Device>,
+    /// A level written locally that sysfs has not reported back yet.
+    pending: Option<Pending>,
+}
+
+/// A local write waiting for the hardware to agree with it.
+///
+/// Without this the poll clobbers the slider mid-drag: the handle is moved,
+/// the write is in flight, and a sample taken from the old value snaps it
+/// backwards under the cursor. The target is held until sysfs reports it, or
+/// until [`SETTLE_SAMPLES`] have passed — so a write that never lands gives up
+/// and shows the truth rather than a level the screen is not at.
+#[derive(Debug, Clone, Copy, PartialEq)]
+struct Pending {
+    target: f64,
+    samples_left: u8,
+}
+
+impl Pending {
+    /// How far off a sample may be and still count as having landed.
+    fn tolerance(max: u32) -> f64 {
+        // One raw step, or the floor, whichever is larger. A device with
+        // `max = 10` moves in 10% jumps and can never report 47%.
+        let step = if max == 0 {
+            0.0
+        } else {
+            100.0 / f64::from(max)
+        };
+        step.max(MIN_SETTLE_TOLERANCE)
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -66,14 +106,17 @@ impl State {
         match event {
             Event::Sampled(Some(percent)) => {
                 self.availability = Availability::Available;
+                if self.device.is_none() {
+                    self.device = discover();
+                }
                 // Don't clobber a value the user is mid-drag on with a stale
                 // poll: the slider writes optimistically and the device takes a
                 // moment to catch up. Accepting every sample would make the
                 // handle jump backwards under the cursor.
-                self.percent = Some(percent);
-                if self.device.is_none() {
-                    self.device = discover();
+                if !self.settled_on(percent) {
+                    return;
                 }
+                self.percent = Some(percent);
             }
             Event::Sampled(None) => {
                 self.availability = Availability::Unavailable;
@@ -81,8 +124,38 @@ impl State {
                 self.dimmed = false;
                 self.restore = None;
                 self.device = None;
+                self.pending = None;
             }
         }
+    }
+
+    /// Whether `percent` may be accepted as the displayed level.
+    ///
+    /// Returns false while a local write is still waiting to be reflected, and
+    /// clears the wait once the sample agrees or patience runs out.
+    fn settled_on(&mut self, percent: f64) -> bool {
+        let Some(pending) = &mut self.pending else {
+            return true;
+        };
+        let tolerance = Pending::tolerance(self.device.as_ref().map_or(0, |device| device.max));
+
+        if (percent - pending.target).abs() <= tolerance {
+            self.pending = None;
+            return true;
+        }
+
+        pending.samples_left = pending.samples_left.saturating_sub(1);
+        if pending.samples_left == 0 {
+            // The write never landed. Better to show what the screen is
+            // actually doing than to keep a number that is not true.
+            tracing::debug!(
+                "brightness write to {:.0}% never took effect; sysfs reads {percent:.0}%",
+                pending.target
+            );
+            self.pending = None;
+            return true;
+        }
+        false
     }
 
     /// Apply a percentage locally and return the work needed to make it real.
@@ -100,6 +173,10 @@ impl State {
         let percent = percent.clamp(MIN_PERCENT, 100.0);
         self.percent = Some(percent);
         self.device = Some(device.clone());
+        self.pending = Some(Pending {
+            target: percent,
+            samples_left: SETTLE_SAMPLES,
+        });
 
         let raw = percent_to_raw(percent, device.max);
         Some(async move {
@@ -257,6 +334,66 @@ mod tests {
 
         let _write = state.set(40.0);
         assert!(!state.dimmed);
+    }
+
+    #[test]
+    fn a_stale_poll_does_not_snap_the_slider_back() {
+        // The regression: drag the handle, the write is in flight, and a sample
+        // taken from the old value arrives and moves the handle backwards.
+        let mut state = dimmable();
+        let _write = state.set(30.0);
+        assert_eq!(state.percent, Some(30.0));
+
+        state.update(Event::Sampled(Some(70.0)));
+        assert_eq!(state.percent, Some(30.0), "a stale sample was accepted");
+    }
+
+    #[test]
+    fn the_sample_is_accepted_once_the_hardware_agrees() {
+        let mut state = dimmable();
+        let _write = state.set(30.0);
+
+        state.update(Event::Sampled(Some(30.0)));
+        assert!(state.pending.is_none());
+
+        // And an external change — a hardware key — is picked up straight away
+        // once nothing local is outstanding.
+        state.update(Event::Sampled(Some(80.0)));
+        assert_eq!(state.percent, Some(80.0));
+    }
+
+    #[test]
+    fn a_write_that_never_lands_gives_up_rather_than_lying() {
+        // logind can refuse the write. Holding the requested level forever
+        // would show a brightness the screen is not at, with no way back.
+        let mut state = dimmable();
+        let _write = state.set(30.0);
+
+        for _ in 0..SETTLE_SAMPLES {
+            state.update(Event::Sampled(Some(70.0)));
+        }
+        assert_eq!(state.percent, Some(70.0));
+        assert!(state.pending.is_none());
+    }
+
+    #[test]
+    fn a_coarse_device_still_settles() {
+        // max = 10 moves in 10% steps, so a request for 47% can only ever read
+        // back as 50%. A fixed tolerance would never accept it and the slider
+        // would stick for SETTLE_SAMPLES on every drag.
+        let mut state = State {
+            availability: Availability::Available,
+            percent: Some(20.0),
+            device: Some(Device {
+                name: "coarse0".into(),
+                max: 10,
+            }),
+            ..State::default()
+        };
+        let _write = state.set(47.0);
+        state.update(Event::Sampled(Some(50.0)));
+        assert!(state.pending.is_none(), "a quantised read was not accepted");
+        assert_eq!(state.percent, Some(50.0));
     }
 
     #[test]

@@ -1,6 +1,6 @@
 # Maintainer: James John <james.john.nuthall@gmail.com>
 pkgname=cosmic-control-center-applet
-pkgver=0.1.0
+pkgver=0.1.1
 pkgrel=1
 pkgdesc="A COSMIC panel applet for Wi-Fi, Bluetooth, power profiles, DNS, volume and brightness"
 arch=('x86_64' 'aarch64')

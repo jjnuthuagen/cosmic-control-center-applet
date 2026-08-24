@@ -10,6 +10,7 @@ mod check;
 mod config;
 mod i18n;
 mod modules;
+mod process;
 mod settings;
 mod ui;
 

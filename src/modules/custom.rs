@@ -53,15 +53,21 @@ impl Tile {
     /// Launch it, detached.
     ///
     /// Nothing is awaited: these are user commands that may run for hours, and
-    /// the applet must not hold them or care when they finish.
+    /// the applet must not hold them or care when they finish. It is still
+    /// reaped — see [`crate::process::spawn_and_reap`].
     pub fn run(&self) {
         let Some((program, arguments)) = self.command.split_first() else {
             tracing::warn!("custom tile `{}` has no command", self.name);
             return;
         };
 
-        match std::process::Command::new(program).args(arguments).spawn() {
-            Ok(child) => tracing::debug!("ran `{}` as pid {}", self.name, child.id()),
+        let mut command = std::process::Command::new(program);
+        command.args(arguments);
+        // Reaped in the background. Nothing waits for the result, but something
+        // has to collect it — the applet is the parent and runs for the whole
+        // session, so an unreaped child stays a zombie until it exits.
+        match crate::process::spawn_and_reap(command) {
+            Ok(pid) => tracing::debug!("ran `{}` as pid {pid}", self.name),
             Err(err) => tracing::warn!("could not run `{}`: {err}", self.name),
         }
     }

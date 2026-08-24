@@ -21,6 +21,16 @@ type ManagedObjects = HashMap<OwnedObjectPath, HashMap<String, HashMap<String, O
 const ADAPTER_INTERFACE: &str = "org.bluez.Adapter1";
 const DEVICE_INTERFACE: &str = "org.bluez.Device1";
 
+/// How often the object tree is re-read on top of the signals.
+///
+/// The signals cover devices appearing and disappearing. They do **not** cover
+/// an adapter's `Powered` changing, which arrives as `PropertiesChanged` on the
+/// adapter itself — a different signal, on a path not known until the first
+/// read. Without this tick, switching Bluetooth off in `cosmic-settings` left
+/// the tile reading "on" indefinitely, and our own optimistic toggle was never
+/// confirmed against the daemon.
+const REFRESH_INTERVAL: std::time::Duration = std::time::Duration::from_secs(10);
+
 #[zbus::proxy(
     interface = "org.freedesktop.DBus.ObjectManager",
     default_service = "org.bluez",
@@ -173,12 +183,17 @@ impl State {
             let initial = read(&manager).await;
             // Devices connecting and disconnecting show up as interfaces being
             // added and removed, so both signals feed the same re-read. Adapter
-            // `Powered` changes arrive as PropertiesChanged on the adapter,
-            // which the periodic re-read below also catches.
-            let changes = futures::stream::select(
+            // `Powered` changes do not appear here at all, which is what the
+            // periodic tick is for — see [`REFRESH_INTERVAL`].
+            let signals = futures::stream::select(
                 manager.receive_interfaces_added().await?.map(|_| ()),
                 manager.receive_interfaces_removed().await?.map(|_| ()),
             );
+            let ticks = futures::stream::unfold((), |()| async {
+                tokio::time::sleep(REFRESH_INTERVAL).await;
+                Some(((), ()))
+            });
+            let changes = futures::stream::select(signals.boxed(), ticks.boxed());
 
             let updates = changes.filter_map(move |()| {
                 let manager = manager.clone();
