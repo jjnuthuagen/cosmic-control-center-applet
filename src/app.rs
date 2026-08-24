@@ -32,18 +32,29 @@ use crate::ui::{
 pub const POPUP_WIDTH: f32 = 360.0;
 const POPUP_MAX_HEIGHT: f32 = 720.0;
 
-/// Cap on the network and device lists.
+/// Cap on the Bluetooth device list.
 ///
-/// A busy flat can see thirty access points. Past a dozen the list is scrolling
-/// anyway and the ones that matter are at the top, since both lists sort
-/// connected-and-known first.
+/// Past a dozen the list is scrolling anyway and the ones that matter are at the
+/// top, since it sorts connected-and-paired first.
 const MAX_LIST_ROWS: usize = 12;
+
+/// Networks shown before "Show more".
+///
+/// A busy building can see thirty access points, and all but a handful are
+/// noise: the list sorts connected, then known, then by strength, so the ones
+/// worth seeing are always in the first few. Showing everything by default
+/// turns a two-tap action into a scroll.
+const WIFI_INITIAL_ROWS: usize = 5;
+/// How many more each press of "Show more" reveals.
+const WIFI_ROW_STEP: usize = 5;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum Page {
     #[default]
     Root,
     Wifi,
+    /// Password entry for one network, reached from the Wi-Fi list.
+    WifiConnect,
     Bluetooth,
     Battery,
     Dns,
@@ -63,6 +74,7 @@ pub enum Message {
     WifiPasswordInput(String),
     WifiSubmitPassword,
     WifiCancelPassword,
+    WifiShowMore,
 
     BluetoothTogglePower,
     BluetoothToggleDevice(String),
@@ -138,6 +150,8 @@ pub struct App {
     /// Validated at load so a broken entry is reported once, not silently
     /// drawn as a tile that does nothing.
     custom: Vec<custom::Tile>,
+    /// How many networks the Wi-Fi list is currently showing.
+    wifi_rows: usize,
 }
 
 impl App {
@@ -578,7 +592,7 @@ impl App {
             content = content.push(divider::horizontal::default());
             content = content.push(text::caption(fl!("visible-networks")));
 
-            for net in self.wifi.networks.iter().take(MAX_LIST_ROWS) {
+            for net in self.wifi.networks.iter().take(self.wifi_rows) {
                 let detail = match net.join_kind() {
                     network::JoinKind::AlreadyConnected => Some(fl!("connected")),
                     network::JoinKind::UnsupportedEnterprise => Some(fl!("enterprise-in-settings")),
@@ -599,12 +613,17 @@ impl App {
                         .then(|| Message::WifiSelect(net.ssid.clone())),
                     spacing,
                 ));
+            }
 
-                // The password field appears inline under the network it
-                // belongs to, so it is obvious which one is being joined.
-                if self.wifi.password_for.as_deref() == Some(net.ssid.as_str()) {
-                    content = content.push(password_field(&self.wifi, spacing));
-                }
+            // Reveal the rest a few at a time rather than all at once, and say
+            // how many are hidden so the button is not a mystery.
+            let hidden = self.wifi.networks.len().saturating_sub(self.wifi_rows);
+            if hidden > 0 {
+                content = content.push(
+                    button::text(fl!("show-more", count = hidden as i64))
+                        .width(Length::Fill)
+                        .on_press(Message::WifiShowMore),
+                );
             }
 
             if self.wifi.networks.is_empty() {
@@ -620,6 +639,77 @@ impl App {
             content = content.push(divider::horizontal::default());
             content = content.push(details_view(&self.wifi.details));
         }
+
+        content.into()
+    }
+
+    /// Password entry for one network.
+    ///
+    /// Its own page rather than a field spliced into the list: the list shifts
+    /// under the cursor as scan results come in every few seconds, which moved
+    /// an inline field while it was being typed into. A page also gives the
+    /// failure message room to be a sentence rather than a fragment.
+    fn wifi_connect_page(&self) -> Element<'_, Message> {
+        let spacing = self.spacing();
+        let ssid = self.wifi.password_for.clone().unwrap_or_default();
+
+        let mut content = column::with_capacity(8)
+            .spacing(spacing.section)
+            .push(page_header(
+                ssid.clone(),
+                // Back returns to the list and abandons the attempt, which is
+                // what a back button should do.
+                Message::WifiCancelPassword,
+                spacing,
+            ))
+            .push(text::caption(fl!(
+                "enter-password-for",
+                ssid = ssid.clone()
+            )));
+
+        content = content.push(
+            text_input::secure_input(
+                fl!("enter-password"),
+                &self.wifi.password_input,
+                None,
+                // Characters stay hidden: this popup sits over whatever is on
+                // screen and dismisses on focus loss, which is a poor place to
+                // expose a key.
+                true,
+            )
+            .on_input(Message::WifiPasswordInput)
+            .on_submit(|_| Message::WifiSubmitPassword)
+            .width(Length::Fill),
+        );
+
+        if let Some(error) = wifi_error_text(&self.wifi) {
+            content = content.push(text::caption(error));
+        }
+
+        let connecting = self.wifi.connecting.as_deref() == Some(ssid.as_str());
+        content = content.push(
+            row::with_capacity(2)
+                .spacing(spacing.gap)
+                .push(
+                    button::standard(fl!("cancel"))
+                        .width(Length::Fill)
+                        .on_press(Message::WifiCancelPassword),
+                )
+                .push(
+                    button::suggested(if connecting {
+                        fl!("connecting")
+                    } else {
+                        fl!("connect")
+                    })
+                    .width(Length::Fill)
+                    // Disabled while empty or in flight, so the button never
+                    // silently does nothing.
+                    .on_press_maybe(
+                        (!self.wifi.password_input.is_empty() && !connecting)
+                            .then_some(Message::WifiSubmitPassword),
+                    ),
+                ),
+        );
 
         content.into()
     }
@@ -831,31 +921,6 @@ impl App {
     }
 }
 
-fn password_field<'a>(wifi: &'a network::State, spacing: Spacing) -> Element<'a, Message> {
-    row::with_capacity(3)
-        .align_y(Alignment::Center)
-        .spacing(spacing.gap)
-        .push(
-            text_input::secure_input(
-                fl!("enter-password"),
-                &wifi.password_input,
-                None,
-                // `true` keeps the characters hidden. There is no reveal toggle:
-                // this popup sits over whatever is on screen and dismisses on
-                // focus loss, which is a poor place to expose a key.
-                true,
-            )
-            .on_input(Message::WifiPasswordInput)
-            .on_submit(|_| Message::WifiSubmitPassword)
-            .width(Length::Fill),
-        )
-        .push(button::text(fl!("connect")).on_press_maybe(
-            (!wifi.password_input.is_empty()).then_some(Message::WifiSubmitPassword),
-        ))
-        .push(button::text(fl!("cancel")).on_press(Message::WifiCancelPassword))
-        .into()
-}
-
 fn details_view(details: &network::Details) -> Element<'_, Message> {
     let mut rows = column::with_capacity(3);
     for (key, value) in [
@@ -972,6 +1037,7 @@ impl Application for App {
                 vpn: vpn::State::default(),
                 caffeine: caffeine::State::default(),
                 custom,
+                wifi_rows: WIFI_INITIAL_ROWS,
             },
             Task::none(),
         )
@@ -999,6 +1065,7 @@ impl Application for App {
                 // should show the grid.
                 self.page = Page::Root;
                 self.wifi.cancel_password();
+                self.wifi_rows = WIFI_INITIAL_ROWS;
 
                 // Pick up anything the Settings window changed. Doing it here
                 // rather than watching the file keeps the applet free of a file
@@ -1051,8 +1118,15 @@ impl Application for App {
                 self.page = page;
                 // Scanning is the expensive part of the Wi-Fi module, so it runs
                 // only while its page is actually on screen.
-                self.wifi.scanning = page == Page::Wifi;
-                if page != Page::Wifi {
+                // Keep scanning on the connect page too: it is reached from the
+                // list and returns to it, and stopping would leave stale results
+                // waiting on the way back.
+                self.wifi.scanning = matches!(page, Page::Wifi | Page::WifiConnect);
+                if page == Page::Wifi {
+                    // Fresh visit, fresh list length.
+                    self.wifi_rows = WIFI_INITIAL_ROWS;
+                }
+                if !self.wifi.scanning {
                     self.wifi.cancel_password();
                 }
                 Task::none()
@@ -1060,12 +1134,24 @@ impl Application for App {
 
             Message::WifiToggleRadio => run(self.wifi.toggle_radio()),
             Message::WifiToggleAirplane => run(self.wifi.toggle_airplane_mode()),
-            Message::WifiSelect(ssid) => match self.wifi.select(&ssid) {
-                Some(future) => {
-                    Task::perform(future, |event| cosmic::action::app(Message::Wifi(event)))
+            Message::WifiSelect(ssid) => {
+                let action = self.wifi.select(&ssid);
+                // `select` opens the password state rather than returning work
+                // when a credential is needed; that is the cue to change page.
+                if self.wifi.password_for.is_some() {
+                    self.page = Page::WifiConnect;
                 }
-                None => Task::none(),
-            },
+                match action {
+                    Some(future) => {
+                        Task::perform(future, |event| cosmic::action::app(Message::Wifi(event)))
+                    }
+                    None => Task::none(),
+                }
+            }
+            Message::WifiShowMore => {
+                self.wifi_rows = self.wifi_rows.saturating_add(WIFI_ROW_STEP);
+                Task::none()
+            }
             Message::WifiPasswordInput(value) => {
                 self.wifi.password_input = value;
                 Task::none()
@@ -1078,6 +1164,9 @@ impl Application for App {
             },
             Message::WifiCancelPassword => {
                 self.wifi.cancel_password();
+                if self.page == Page::WifiConnect {
+                    self.page = Page::Wifi;
+                }
                 Task::none()
             }
 
@@ -1171,6 +1260,15 @@ impl Application for App {
 
             Message::Wifi(event) => {
                 self.wifi.update(event);
+                // The connect page is defined by there being a network awaiting
+                // a password. Once that clears — joined, or failed in a way that
+                // a retype cannot fix — the page has no subject and its header
+                // would be blank, so fall back to the list. A wrong password
+                // deliberately keeps `password_for` set, which keeps us here
+                // with the field ready to correct.
+                if self.page == Page::WifiConnect && self.wifi.password_for.is_none() {
+                    self.page = Page::Wifi;
+                }
                 Task::none()
             }
             Message::Bluetooth(event) => {
@@ -1312,6 +1410,7 @@ impl Application for App {
         let page = scrollable_page(match self.page {
             Page::Root => self.root_page(),
             Page::Wifi => self.wifi_page(),
+            Page::WifiConnect => self.wifi_connect_page(),
             Page::Bluetooth => self.bluetooth_page(),
             Page::Battery => self.battery_page(),
             Page::Dns => self.dns_page(),

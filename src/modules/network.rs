@@ -664,6 +664,36 @@ mod tests {
     }
 
     #[test]
+    fn a_successful_join_closes_the_password_state() {
+        // The connect page keys off `password_for`; leaving it set after a
+        // successful join would strand the user on a page for a network they
+        // are already on.
+        let mut state = State {
+            password_for: Some("HomeNet".into()),
+            password_input: "hunter2".into(),
+            ..State::default()
+        };
+        state.update(Event::Connected("HomeNet".into()));
+        assert!(state.password_for.is_none());
+        assert!(state.password_input.is_empty());
+        assert!(state.last_error.is_none());
+    }
+
+    #[test]
+    fn cancelling_clears_the_password_state_and_any_error() {
+        let mut state = State {
+            password_for: Some("HomeNet".into()),
+            password_input: "typo".into(),
+            last_error: Some(("HomeNet".into(), Error::AuthFailed)),
+            ..State::default()
+        };
+        state.cancel_password();
+        assert!(state.password_for.is_none());
+        assert!(state.password_input.is_empty());
+        assert!(state.last_error.is_none());
+    }
+
+    #[test]
     fn a_non_password_failure_closes_the_field() {
         let mut state = State {
             password_for: Some("HomeNet".into()),
