@@ -46,25 +46,30 @@ mod tests {
         command.stdout(std::process::Stdio::null());
         let pid = spawn_and_reap(command).expect("`true` must be runnable");
 
-        // Wait for the reaper to finish. Reading /proc is the only way to see
-        // the distinction this function exists for: an unreaped child is still
-        // listed, in state Z.
+        // Reading /proc is the only way to see the distinction this function
+        // exists for: an unreaped child stays listed, in state Z, forever.
+        //
+        // A *correctly* reaped child is also briefly Z — between its exit and
+        // the reaper's `wait` — so seeing Z once proves nothing. The test is
+        // whether it goes away, which is why this waits for disappearance
+        // rather than asserting on the first sample. Asserting on the first Z
+        // is what made an earlier version of this test fail on a loaded CI
+        // runner and pass everywhere else.
         let path = format!("/proc/{pid}/stat");
-        for _ in 0..200 {
-            match std::fs::read_to_string(&path) {
+        let mut last_state = None;
+        for _ in 0..500 {
+            let Ok(stat) = std::fs::read_to_string(&path) else {
                 // Gone entirely: reaped.
-                Err(_) => return,
-                Ok(stat) => {
-                    // `comm` can contain spaces and parentheses, so the state
-                    // field is the character after the last ')'.
-                    let state = stat
-                        .rsplit_once(')')
-                        .and_then(|(_, rest)| rest.split_whitespace().next());
-                    assert_ne!(state, Some("Z"), "pid {pid} was left as a zombie");
-                }
-            }
+                return;
+            };
+            // `comm` can contain spaces and parentheses, so the state field is
+            // the first token after the last ')'.
+            last_state = stat
+                .rsplit_once(')')
+                .and_then(|(_, rest)| rest.split_whitespace().next())
+                .map(str::to_string);
             std::thread::sleep(std::time::Duration::from_millis(10));
         }
-        panic!("pid {pid} never went away");
+        panic!("pid {pid} never went away; it is still in state {last_state:?}");
     }
 }

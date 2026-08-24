@@ -21,3 +21,6 @@
 
 # Local working notes — not for the public repo
 /CLAUDE.md
+
+# updpkgsums downloads the release tarball next to the PKGBUILD.
+packaging/*.tar.gz

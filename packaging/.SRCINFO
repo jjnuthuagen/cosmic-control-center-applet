@@ -1,0 +1,25 @@
+pkgbase = cosmic-control-center-applet
+	pkgdesc = A COSMIC panel applet for Wi-Fi, Bluetooth, power profiles, DNS, volume and brightness
+	pkgver = 0.1.1
+	pkgrel = 1
+	url = https://github.com/jjnuthuagen/cosmic-control-center-applet
+	arch = x86_64
+	arch = aarch64
+	license = MIT
+	license = Apache-2.0
+	makedepends = cargo
+	makedepends = git
+	depends = wayland
+	depends = libxkbcommon
+	depends = gcc-libs
+	depends = glibc
+	optdepends = networkmanager: Wi-Fi and DNS tiles
+	optdepends = bluez: Bluetooth tile
+	optdepends = power-profiles-daemon: power profile switching
+	optdepends = upower: battery percentage
+	optdepends = wireplumber: volume slider
+	optdepends = libpulse: volume slider fallback via pactl
+	source = cosmic-control-center-applet-0.1.1.tar.gz::https://github.com/jjnuthuagen/cosmic-control-center-applet/archive/refs/tags/v0.1.1.tar.gz
+	sha256sums = c9c488aea0f80c93963f17064fbb7196b242ce1994b6d35eee25213f8254e045
+
+pkgname = cosmic-control-center-applet
