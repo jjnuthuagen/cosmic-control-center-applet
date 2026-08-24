@@ -1,6 +1,6 @@
 [package]
 name = "cosmic-control-center-applet"
-version = "0.1.1"
+version = "0.1.2"
 edition = "2021"
 description = "A COSMIC panel applet for Wi-Fi, Bluetooth, power profiles, DNS, volume and brightness"
 license = "MIT OR Apache-2.0"
