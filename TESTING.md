@@ -65,6 +65,9 @@ specific regressions listed below. They do **not** cover layout — see section 
 | `a_game_holding_gamemode_cannot_be_switched_off_here` | The applet yanking GameMode out from under a running game. |
 | `battery_buckets_never_leave_the_family` | An out-of-range percentage producing an icon name no theme ships. |
 | `an_empty_candidate_list_yields_the_spec_fallback` | An icon lookup returning nothing and rendering blank. |
+| `a_child_is_reaped_rather_than_left_as_a_zombie` | Every Settings window and custom-tile press leaving a zombie for the life of the session. |
+| `a_stale_poll_does_not_snap_the_slider_back` | A brightness sample taken before the write landed moving the slider backwards mid-drag. |
+| `a_write_that_never_lands_gives_up_rather_than_lying` | Holding a requested brightness on screen forever when logind refused the write. |
 
 ## 3. Manual checklist — the UI
 
