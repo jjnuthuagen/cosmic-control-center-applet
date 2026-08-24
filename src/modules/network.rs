@@ -188,19 +188,27 @@ impl State {
                 self.details = Details::default();
             }
             Event::Connected(ssid) => {
-                self.connecting = None;
-                self.password_for = None;
-                self.password_input.clear();
-                self.last_error = None;
+                // Only clear the in-flight marker if this is the join we were
+                // waiting on. Joins are fire-and-forget, so an older one can
+                // land while a newer is running.
+                if self.connecting.as_deref() == Some(ssid.as_str()) {
+                    self.connecting = None;
+                }
+                self.clear_password_state_for(&ssid);
                 self.connected_ssid = Some(ssid);
             }
             Event::Failed(ssid, error) => {
-                self.connecting = None;
-                // Keep the password field open on a bad password so the user
-                // can correct it without re-selecting the network.
-                if !matches!(error, Error::AuthFailed) {
-                    self.password_for = None;
+                if self.connecting.as_deref() == Some(ssid.as_str()) {
+                    self.connecting = None;
                 }
+                // A wrong password keeps the field open so it can be corrected
+                // without finding the network again. Anything else retyping
+                // cannot fix, so the state is released.
+                if !matches!(error, Error::AuthFailed) {
+                    self.clear_password_state_for(&ssid);
+                }
+                // The error belongs to a network, and the UI only shows it on
+                // pages about that network — see `wifi_error_text`.
                 self.last_error = Some((ssid, error));
             }
         }
@@ -231,6 +239,13 @@ impl State {
         if self.password_input.is_empty() {
             return None;
         }
+        // Refuse while a join for this network is already running. Pressing
+        // Enter again would start a second NetworkManager activation for the
+        // same SSID and reset the state the first one is reporting into.
+        // Guarded here rather than in the view so every caller is covered.
+        if self.connecting.as_deref() == Some(ssid.as_str()) {
+            return None;
+        }
         let password = self.password_input.clone();
         Some(self.begin_join(ssid, Some(password)))
     }
@@ -248,6 +263,21 @@ impl State {
                 Err(error) => Event::Failed(ssid, error),
             }
         }
+    }
+
+    /// Release the password state, but only if it belongs to `ssid`.
+    ///
+    /// The guard is the point. Tapping a saved network starts a join with no
+    /// page change, then tapping a secured one opens the password page; when
+    /// the first join resolves, an unguarded clear would close the page and
+    /// discard a password being typed for an entirely different network.
+    fn clear_password_state_for(&mut self, ssid: &str) {
+        if self.password_for.as_deref() != Some(ssid) {
+            return;
+        }
+        self.password_for = None;
+        self.password_input.clear();
+        self.last_error = None;
     }
 
     pub fn cancel_password(&mut self) {
@@ -677,6 +707,60 @@ mod tests {
         assert!(state.password_for.is_none());
         assert!(state.password_input.is_empty());
         assert!(state.last_error.is_none());
+    }
+
+    #[test]
+    fn another_networks_join_does_not_close_the_password_page() {
+        // Tap a saved network, then a secured one while the first is still
+        // connecting. When the first lands it must not wipe the password being
+        // typed for the second.
+        let mut state = State {
+            password_for: Some("Neighbour".into()),
+            password_input: "half-typed".into(),
+            connecting: Some("HomeNet".into()),
+            ..State::default()
+        };
+
+        state.update(Event::Connected("HomeNet".into()));
+
+        assert_eq!(state.password_for.as_deref(), Some("Neighbour"));
+        assert_eq!(state.password_input, "half-typed");
+        assert!(state.connecting.is_none());
+    }
+
+    #[test]
+    fn another_networks_failure_does_not_close_the_password_page() {
+        // Same race on the failure path, and more likely: a timeout takes
+        // tens of seconds, which is plenty of time to start typing elsewhere.
+        let mut state = State {
+            password_for: Some("Neighbour".into()),
+            password_input: "half-typed".into(),
+            connecting: Some("HomeNet".into()),
+            ..State::default()
+        };
+
+        state.update(Event::Failed("HomeNet".into(), Error::Timeout));
+
+        assert_eq!(state.password_for.as_deref(), Some("Neighbour"));
+        assert_eq!(state.password_input, "half-typed");
+    }
+
+    #[test]
+    fn submitting_twice_does_not_start_a_second_join() {
+        // Pressing Enter again during a join would issue a duplicate
+        // activation and reset the state the first is reporting into.
+        let mut state = State {
+            password_for: Some("HomeNet".into()),
+            password_input: "hunter2".into(),
+            ..State::default()
+        };
+
+        assert!(state.submit_password().is_some());
+        assert_eq!(state.connecting.as_deref(), Some("HomeNet"));
+        assert!(
+            state.submit_password().is_none(),
+            "a second submit must be refused while the first is in flight"
+        );
     }
 
     #[test]

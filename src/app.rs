@@ -619,8 +619,11 @@ impl App {
             // how many are hidden so the button is not a mystery.
             let hidden = self.wifi.networks.len().saturating_sub(self.wifi_rows);
             if hidden > 0 {
+                // Label what the press actually reveals, not what is hidden.
+                // "Show 17 more" that reveals five is a button that lies.
+                let reveals = hidden.min(WIFI_ROW_STEP);
                 content = content.push(
-                    button::text(fl!("show-more", count = hidden as i64))
+                    button::text(fl!("show-more", count = reveals as i64))
                         .width(Length::Fill)
                         .on_press(Message::WifiShowMore),
                 );
@@ -682,7 +685,7 @@ impl App {
             .width(Length::Fill),
         );
 
-        if let Some(error) = wifi_error_text(&self.wifi) {
+        if let Some(error) = wifi_error_for(&self.wifi, &ssid) {
             content = content.push(text::caption(error));
         }
 
@@ -937,6 +940,20 @@ fn details_view(details: &network::Details) -> Element<'_, Message> {
         }
     }
     rows.into()
+}
+
+/// The last Wi-Fi error, but only when it is about `about`.
+///
+/// Errors carry the network they belong to because more than one join can be
+/// in flight. Without the filter, a failure for one network renders under
+/// another's password field — telling the user the password they have not yet
+/// tried is wrong.
+fn wifi_error_for(wifi: &network::State, about: &str) -> Option<String> {
+    let (ssid, _) = wifi.last_error.as_ref()?;
+    if ssid != about {
+        return None;
+    }
+    wifi_error_text(wifi)
 }
 
 fn wifi_error_text(wifi: &network::State) -> Option<String> {
