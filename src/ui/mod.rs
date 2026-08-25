@@ -25,6 +25,7 @@ use cosmic::widget::{
 use cosmic::{theme, Element};
 
 use crate::config::TileStyle;
+use crate::tile_layout::{pack, Placement, TileShape};
 
 /// Icon size inside a tile and a list row.
 pub const ICON_SIZE: u16 = 20;
@@ -270,27 +271,65 @@ pub fn ghost_tile<'a, Msg: 'a>(spacing: Spacing) -> Element<'a, Msg> {
         .into()
 }
 
-/// Lay tiles out two to a row, padding an odd count with a ghost so the last
-/// row stays square.
-pub fn tile_grid<'a, Msg: Clone + 'a>(
-    tiles: Vec<Element<'a, Msg>>,
+/// Pack shaped tiles into a two-column grid.
+///
+/// Returns a single grid `Element` — the popup's page pushes it into whatever
+/// column is above it. Uses libcosmic's `Grid` widget to place each tile at
+/// the (row, column) the packer chose, and drops a ghost into every remaining
+/// empty cell so an odd row and gaps around Wide/Tall tiles all read as
+/// deliberate rather than as missing tiles.
+///
+/// Two rules the caller relies on:
+///
+///  * The tile at index `i` in `tiles` is placed at `packed.tiles[i]`. Nothing
+///    reorders. A Wide behind a Small leaves a ghost to the Small's right, not
+///    a swap.
+///  * A shape whose footprint cannot fit the grid (e.g. a Wide in a
+///    one-column grid) is dropped by the packer entirely — the tile is not
+///    drawn. That has to be a rare accident given the fixed two-column layout,
+///    but it prevents a panic when it happens.
+pub fn tile_grid<'a, Msg: Clone + 'static>(
+    tiles: Vec<(Element<'a, Msg>, TileShape)>,
     spacing: Spacing,
-) -> Vec<Element<'a, Msg>> {
-    let mut rows = Vec::with_capacity(tiles.len().div_ceil(2));
-    let mut tiles = tiles.into_iter();
+) -> Element<'a, Msg> {
+    let shapes: Vec<TileShape> = tiles.iter().map(|(_, shape)| *shape).collect();
+    let packed = pack(&shapes, 2);
 
-    while let Some(left) = tiles.next() {
-        let right = tiles.next().unwrap_or_else(|| ghost_tile(spacing));
-        rows.push(
-            row::with_capacity(2)
-                .spacing(spacing.gap)
-                .push(container(left).width(Length::FillPortion(1)))
-                .push(container(right).width(Length::FillPortion(1)))
-                .into(),
-        );
+    let mut grid = cosmic::widget::grid()
+        .column_spacing(spacing.gap)
+        .row_spacing(spacing.gap)
+        .width(Length::Fill);
+
+    for ((element, _), placement) in tiles.into_iter().zip(packed.tiles.iter()) {
+        grid = grid.push_with(element, |assignment| assign(assignment, *placement));
     }
 
-    rows
+    for placement in packed.ghosts {
+        grid = grid.push_with(ghost_tile(spacing), |assignment| {
+            assign(assignment, placement)
+        });
+    }
+
+    grid.into()
+}
+
+/// Translate our `Placement` into libcosmic's `Grid` assignment.
+///
+/// libcosmic's `Assignment` keeps its fields private and exposes a
+/// `From<(col, row, width, height)>` conversion, which is what this uses. The
+/// discarded `_prior` matters only because `push_with` hands the callback the
+/// default assignment; we ignore it and produce a fresh one from our own
+/// [`Placement`].
+fn assign(
+    _prior: cosmic::widget::grid::widget::Assignment,
+    placement: Placement,
+) -> cosmic::widget::grid::widget::Assignment {
+    cosmic::widget::grid::widget::Assignment::from((
+        placement.column,
+        placement.row,
+        placement.width,
+        placement.height,
+    ))
 }
 
 /// An icon plus a full-width slider, used for volume and brightness.

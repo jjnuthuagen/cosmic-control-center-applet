@@ -442,9 +442,16 @@ impl App {
         }
 
         let has_tiles = !tiles.is_empty();
+        // `tiles` is moved into `shaped` below; capture the flag first.
         let mut content = column::with_capacity(8).spacing(spacing.section);
-        for grid_row in tile_grid(tiles, spacing) {
-            content = content.push(grid_row);
+        // Wrap every existing tile as `Small` for now. Shapes are introduced
+        // per-tile in the next steps (sliders as Tall, Connectivity as Wide).
+        let shaped: Vec<_> = tiles
+            .into_iter()
+            .map(|tile| (tile, crate::tile_layout::TileShape::Small))
+            .collect();
+        if !shaped.is_empty() {
+            content = content.push(tile_grid(shaped, spacing));
         }
 
         let has_sliders = self.show_volume() || self.show_brightness();
