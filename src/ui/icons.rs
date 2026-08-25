@@ -371,25 +371,24 @@ fn band(strength: u8) -> Band {
 
 /// Window tiling, by whether the current workspace is tiled or floating.
 pub fn tiling(tiled: bool) -> &'static str {
-    // COSMIC's own tiling applet ships a matched pair, `.On` and `.Off`, and
-    // using them means the tile reads the same as the tiling button already on
-    // the panel. They are plain app icons rather than the `-symbolic` family,
-    // which is why the names look unlike everything else here.
+    // Symbolic only. COSMIC's tiling applet ships a matched `.On`/`.Off` pair
+    // and it was tempting to reuse them, but they are full-colour app icons:
+    // libcosmic recolours only names ending in `-symbolic`, so the pair kept
+    // their own colours while every other tile followed the theme — the one
+    // glyph in the grid that ignored dark mode and the accent.
     if tiled {
         resolve(&[
-            "com.system76.CosmicAppletTiling.On",
-            "com.system76.CosmicAppletTiling-symbolic",
             "view-grid-symbolic",
+            "window-stack-symbolic",
             "view-app-grid-symbolic",
             "view-dual-symbolic",
         ])
     } else {
         resolve(&[
-            "com.system76.CosmicAppletTiling.Off",
-            "view-restore-symbolic",
-            "focus-windows-symbolic",
             "window-restore-symbolic",
-            "view-grid-symbolic",
+            "focus-windows-symbolic",
+            "view-restore-symbolic",
+            "window-pop-out-symbolic",
         ])
     }
 }
