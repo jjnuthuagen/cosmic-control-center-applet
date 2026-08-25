@@ -124,6 +124,13 @@ impl TileShape {
 /// predates them.
 pub const DEFAULT_ORDER: &[TileKey] = &[
     TileKey::Connectivity,
+    // The standalone Wi-Fi/Bluetooth/VPN tiles sit right behind the group.
+    // They are off by default, but they must still have a slot: a key absent
+    // from here is one `resolve_order` never yields, so switching the tile on
+    // would have drawn nothing.
+    TileKey::Wifi,
+    TileKey::Bluetooth,
+    TileKey::Vpn,
     TileKey::Battery,
     TileKey::Dns,
     TileKey::DarkMode,
@@ -247,7 +254,38 @@ mod tests {
         //
         // Bump the number when adding a tile — that failure is a reminder to
         // pick where the new tile goes in the default order.
-        assert_eq!(DEFAULT_ORDER.len(), 14);
+        assert_eq!(DEFAULT_ORDER.len(), 17);
+    }
+
+    #[test]
+    fn every_tile_key_has_a_slot_in_the_default_order() {
+        // A key missing here is one `resolve_order` never yields, so the tile
+        // can never be drawn however its switch is set. That is how the
+        // standalone Wi-Fi, Bluetooth and VPN tiles were unreachable.
+        for key in [
+            TileKey::Connectivity,
+            TileKey::Wifi,
+            TileKey::Bluetooth,
+            TileKey::Vpn,
+            TileKey::Battery,
+            TileKey::Dns,
+            TileKey::DarkMode,
+            TileKey::Tiling,
+            TileKey::GameMode,
+            TileKey::Media,
+            TileKey::DoNotDisturb,
+            TileKey::KeepAwake,
+            TileKey::ChargeThreshold,
+            TileKey::KeyboardBacklight,
+            TileKey::Volume,
+            TileKey::Brightness,
+            TileKey::Microphone,
+        ] {
+            assert!(
+                DEFAULT_ORDER.contains(&key),
+                "{key:?} has no slot in DEFAULT_ORDER, so it can never be drawn"
+            );
+        }
     }
 
     #[test]

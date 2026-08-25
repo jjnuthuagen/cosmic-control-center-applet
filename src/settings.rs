@@ -381,25 +381,41 @@ impl Settings {
     /// Mirrors the popup's rule: with the Connectivity group on, Wi-Fi,
     /// Bluetooth and VPN live inside it and do not appear on their own; with
     /// it off, the three come first as standalone tiles.
-    fn preview_order(&self) -> Vec<TileKey> {
-        // Mid-move, the order being edited is the one to draw.
+    /// Every tile key, in the user's order — including ones this page does
+    /// not draw.
+    ///
+    /// This is what gets persisted. Saving only the *drawn* subset silently
+    /// dropped every other key from the file, and `resolve_order` then
+    /// re-appended them at the end — so one drag could shunt Connectivity to
+    /// the bottom of a grid the user never touched. Reordering has to happen
+    /// in the complete list and be written back complete.
+    fn full_order(&self) -> Vec<TileKey> {
+        // Mid-move, the order being edited is the one to use.
         if self.picked.is_some() && !self.working_order.is_empty() {
             return self.working_order.clone();
         }
+        crate::tile_layout::resolve_order(&self.config.appearance.order, |_| true)
+    }
 
-        // Otherwise the stored order, reconciled the same way the popup does
-        // it, then filtered to what is actually a grid tile here.
-        let grouped = self.config.modules.connectivity;
-        crate::tile_layout::resolve_order(&self.config.appearance.order, |k| match k {
-            // The group and its members are mutually exclusive on the grid.
-            TileKey::Connectivity => grouped,
-            TileKey::Wifi | TileKey::Bluetooth | TileKey::Vpn => !grouped,
-            // Game Mode and the charge limit live inside the Battery page,
-            // and Media is a full-width row under the grid. None is a grid
-            // tile, so none belongs in a preview of the grid.
-            TileKey::GameMode | TileKey::Media | TileKey::ChargeThreshold => false,
-            _ => true,
-        })
+    /// The subset of [`Self::full_order`] this page draws.
+    ///
+    /// Every tile is previewed whether or not its switch is on — the switch is
+    /// what you came here to find, and a tile that vanishes the moment you
+    /// switch it off leaves nowhere to switch it back on. The group and the
+    /// standalone tiles are independent, so all four are shown.
+    fn preview_order(&self) -> Vec<TileKey> {
+        self.full_order()
+            .into_iter()
+            .filter(|k| {
+                // Game Mode and the charge limit live inside the Battery page,
+                // and Media is a full-width row under the grid. None is a grid
+                // tile, so none belongs in a preview of the grid.
+                !matches!(
+                    k,
+                    TileKey::GameMode | TileKey::Media | TileKey::ChargeThreshold
+                )
+            })
+            .collect()
     }
 
     /// One preview tile, using the real widgets with placeholder state.
@@ -737,7 +753,8 @@ impl Application for Settings {
             Message::Noop => {}
             Message::PickTile(key) => match self.picked {
                 None => {
-                    self.working_order = self.preview_order();
+                    // The *full* order, not the drawn subset — see `full_order`.
+                    self.working_order = self.full_order();
                     self.picked = Some(key);
                 }
                 Some(picked) if picked == key => {
