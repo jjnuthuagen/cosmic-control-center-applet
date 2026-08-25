@@ -24,6 +24,28 @@ Built in Rust with [libcosmic](https://github.com/pop-os/libcosmic) for the [COS
 +---------------------------------------+
 ```
 
+## The grid
+
+Tiles come in three shapes and pack into two columns:
+
+| Shape | Footprint | Used by |
+|---|---|---|
+| Small | 1 × 1 | Most controls |
+| Wide | 2 × 1 | Connectivity — Wi-Fi, Bluetooth and VPN in one card with a switch per row |
+| Tall | 1 × 2 | Volume, brightness, microphone: icon over a vertical slider over the percentage |
+
+The packer keeps your order. A Wide tile behind a Small one leaves a ghost
+slot to the Small's right rather than swapping them — so when you move a
+tile, it lands where you put it.
+
+**Rearranging:** right-click the panel button → Tiles. Tap a tile to pick it
+up, move across the grid to see the others shuffle around where it will
+land, tap again to drop it. The order is written to `config.toml` as
+`[appearance] order = […]`; you can also edit that list by hand.
+
+`connectivity = false` under `[modules]` splits the group back into three
+Small tiles.
+
 ## Modules
 
 | Module | Backend |

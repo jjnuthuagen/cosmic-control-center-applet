@@ -39,6 +39,18 @@ charge_threshold   = true   # hides itself unless the hardware supports it
 #              opening a control, the way the battery tile already works
 style = "high"
 
+# The order tiles are drawn in. Omitted or empty means the default order.
+# Rearrange from Settings (right-click the panel button, Tiles tab: tap a
+# tile to pick it up, tap where it should go) and this is written for you;
+# or list the names by hand. A tile you leave out is appended at the end in
+# default order, so nothing goes missing if a new tile is added later.
+#
+#   order = ["connectivity", "battery", "dark-mode", "volume", "brightness"]
+#
+# Names: connectivity, wifi, bluetooth, vpn, battery, dns, dark-mode,
+# tiling, keyboard-backlight, do-not-disturb, keep-awake, volume,
+# brightness, microphone.
+
 # What the panel button shows. Omitted, it is the "toggles" preset below.
 #
 #   [appearance.icon]

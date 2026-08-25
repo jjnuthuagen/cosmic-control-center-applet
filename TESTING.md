@@ -68,6 +68,12 @@ specific regressions listed below. They do **not** cover layout — see section 
 | `a_child_is_reaped_rather_than_left_as_a_zombie` | Every Settings window and custom-tile press leaving a zombie for the life of the session. |
 | `a_stale_poll_does_not_snap_the_slider_back` | A brightness sample taken before the write landed moving the slider backwards mid-drag. |
 | `a_write_that_never_lands_gives_up_rather_than_lying` | Holding a requested brightness on screen forever when logind refused the write. |
+| `a_wide_after_a_lone_small_starts_a_new_row_and_leaves_a_ghost` | The packer reordering tiles to close gaps, so a tile you moved lands somewhere else. |
+| `a_wide_cannot_slip_past_a_tall_reserving_a_column` | A Wide tile overlapping a Tall one that still holds its column in the next row. |
+| `placements_never_overlap_across_any_of_the_mixed_cases` | Any two tiles claiming the same cell in a mixed grid. |
+| `missing_tiles_are_appended_in_default_order` | A config written before a tile existed silently dropping that tile. |
+| `duplicates_in_the_stored_order_are_dropped_first_wins` | A hand-edited list naming a tile twice drawing it twice. |
+| `an_order_round_trips_and_an_empty_one_means_default` | A rename of a tile's config name silently emptying every config that used it. |
 
 ## 3. Manual checklist — the UI
 
@@ -91,6 +97,11 @@ seen once. If you only have ten minutes, do this section.
 - [ ] A wrong password keeps you on that page with the text still there to correct.
 - [ ] The network list shows five, with a "Show 5 more" button when there are more.
 - [ ] Battery page shows time remaining above the profiles (unplug first — on mains there is no estimate).
+- [ ] The popup opens as one grid: Connectivity wide at the top with a switch per row, sliders as tall tiles with vertical tracks, no separate slider rows underneath.
+- [ ] Muting volume from its icon replaces the vertical slider with a filled bar at the old level; unmuting brings the slider back at that level.
+- [ ] Settings → Tiles shows the same grid. Tap a tile: it takes an accent outline. Move over another tile: the picked one moves there and the rest shuffle. Tap again: it stays, and the popup opens in the new order next time.
+- [ ] Tapping the picked tile itself puts it back where it was and writes nothing.
+- [ ] `connectivity = false` in config.toml turns the wide card back into three small tiles, in both the popup and the Settings preview.
 - [ ] Game Mode appears directly after Performance in the same list, not under a divider.
 
 ### Panel and popup
