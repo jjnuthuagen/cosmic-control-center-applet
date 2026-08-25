@@ -705,6 +705,20 @@ pub fn media_player(desktop_entry: Option<&str>, bus_suffix: &str, identity: &st
     .to_string()
 }
 
+/// The grab handle shown on a tile you can drag.
+///
+/// `grip-lines-symbolic` is COSMIC's own; the rest are what other themes
+/// call the same thing, so the handle is not blank on GNOME or KDE.
+pub fn drag_handle() -> &'static str {
+    resolve(&[
+        "grip-lines-symbolic",
+        "list-drag-handle-symbolic",
+        "drag-handle-symbolic",
+        "open-menu-symbolic",
+        "view-more-symbolic",
+    ])
+}
+
 /// The default panel button.
 pub fn applet() -> &'static str {
     resolve(&[

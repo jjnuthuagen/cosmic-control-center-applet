@@ -61,6 +61,30 @@ fn preview_module_key(key: TileKey) -> (&'static str, TileShape) {
     (module, key.default_shape())
 }
 
+/// Lay a grab handle over a tile's top-right corner when `show` is set.
+///
+/// A `stack` rather than putting the handle inside the tile: the tiles here
+/// are the popup's own widgets, drawn so the preview is honest about what the
+/// grid looks like, and threading a Settings-only decoration through them
+/// would put Settings' concerns inside the thing being previewed.
+fn with_drag_handle(tile: Element<'_, Message>, show: bool, spacing: u16) -> Element<'_, Message> {
+    if !show {
+        return tile;
+    }
+
+    let handle = container(cosmic::widget::icon::from_name(icons::drag_handle()).size(HANDLE_ICON))
+        .padding(spacing / 2)
+        .width(Length::Fill)
+        .align_x(cosmic::iced::Alignment::End)
+        .align_y(cosmic::iced::Alignment::Start);
+
+    cosmic::iced::widget::stack![tile, handle].into()
+}
+
+/// The grab handle's glyph size — smaller than a tile's own icon, because it
+/// is an affordance on top of the content rather than part of it.
+const HANDLE_ICON: u16 = 14;
+
 /// A preview tile dressed for its state.
 ///
 /// Three states, and they have to stay visually distinct:
@@ -253,6 +277,11 @@ pub struct Settings {
     pressed: Option<TileKey>,
     /// Whether the held press has turned into a drag.
     dragging: bool,
+    /// The tile under the pointer, so it can show its grab handle.
+    ///
+    /// A drag gesture nobody knows about is a drag gesture nobody uses: the
+    /// handle appearing under the pointer is what says the tiles move.
+    hovered: Option<TileKey>,
     /// The order being edited while a tile is picked. Committed to config on
     /// drop, discarded on cancel — so a cancelled move leaves the file as it
     /// was rather than half-applied.
@@ -278,6 +307,8 @@ pub enum Message {
     /// Pointer up. A drag commits the new order; a plain press selects or
     /// deselects the tile that was pressed.
     ReleaseTile,
+    /// The pointer left a preview tile.
+    ExitTile,
     /// Another `--settings` invocation asked this window to come forward.
     Present,
     ToggleCustom(usize, bool),
@@ -387,13 +418,24 @@ impl Settings {
             let tile = self.preview_tile(key, enabled, theme_spacing);
             let dragging = self.dragging && self.pressed == Some(key);
             let tile = preview_frame(tile, enabled, dragging);
+            // The handle appears under the pointer, which is what tells you
+            // the tiles can be moved at all. Hidden otherwise: a handle on
+            // every tile at rest is sixteen pieces of clutter saying the same
+            // thing once.
+            let tile = with_drag_handle(tile, self.hovered == Some(key) || dragging, spacing);
             // One pointer button, two gestures: a press that never leaves the
             // tile is a tap and selects it; a press that wanders into another
             // tile is a drag and reorders. `mouse_area` rather than the tile's
             // own button so both live in one place.
             let tile = cosmic::widget::mouse_area(tile)
+                .interaction(if dragging {
+                    cosmic::iced::mouse::Interaction::Grabbing
+                } else {
+                    cosmic::iced::mouse::Interaction::Grab
+                })
                 .on_press(Message::PressTile(key))
                 .on_enter(Message::HoverTile(key))
+                .on_exit(Message::ExitTile)
                 .on_release(Message::ReleaseTile);
             tiles.push((tile.into(), shape));
         }
@@ -752,6 +794,7 @@ impl Application for Settings {
             about,
             pressed: None,
             dragging: false,
+            hovered: None,
             working_order: Vec::new(),
         };
 
@@ -800,7 +843,9 @@ impl Application for Settings {
                 self.dragging = false;
                 self.save();
             }
+            Message::ExitTile => self.hovered = None,
             Message::HoverTile(over) => {
+                self.hovered = Some(over);
                 if let Some(picked) = self.pressed {
                     if picked != over {
                         // Entering a different tile is what makes this a drag
