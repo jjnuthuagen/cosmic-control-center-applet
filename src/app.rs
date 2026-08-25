@@ -26,7 +26,7 @@ use crate::modules::{
 use crate::tile_layout::{resolve_order, TileKey, TileShape};
 use crate::ui::{
     connectivity_tile, icons, list_row, page_header, scrollable_page, tile_grid, toggle_row,
-    wide_slider_tile, ConnectivityRow, Spacing, Tile,
+    wide_slider_tile, ConnectivityRow, SliderMode, Spacing, Tile,
 };
 
 /// Wide enough for two tiles plus their state text, narrow enough not to
@@ -318,7 +318,7 @@ impl App {
                 // a switch that flips and then flips back is worse than one
                 // that is plainly disabled.
                 on_toggle: (!killed).then_some(Message::WifiToggleRadio),
-                on_press: Message::Navigate(Page::Wifi),
+                on_press: Some(Message::Navigate(Page::Wifi)),
             });
         }
 
@@ -332,7 +332,7 @@ impl App {
                 state: Some(self.bluetooth_state_text()),
                 on: self.bluetooth.powered,
                 on_toggle: Some(Message::BluetoothTogglePower),
-                on_press: Message::Navigate(Page::Bluetooth),
+                on_press: Some(Message::Navigate(Page::Bluetooth)),
             });
         }
 
@@ -349,7 +349,7 @@ impl App {
                 on: active,
                 // Only meaningful when there is a profile to switch on.
                 on_toggle: (!self.vpn.profiles.is_empty()).then_some(Message::ToggleVpnQuick),
-                on_press: Message::Navigate(Page::Vpn),
+                on_press: Some(Message::Navigate(Page::Vpn)),
             });
         }
 
@@ -580,7 +580,11 @@ impl App {
                     self.volume.percent.unwrap_or(0.0),
                     Message::SetVolume,
                     Some(Message::ToggleMute),
-                    !self.volume.muted,
+                    if self.volume.muted {
+                        SliderMode::Held
+                    } else {
+                        SliderMode::Live
+                    },
                     spacing,
                 ),
                 TileShape::Tall,
@@ -598,7 +602,11 @@ impl App {
                     self.brightness.percent.unwrap_or(0.0),
                     Message::SetBrightness,
                     Some(Message::ToggleDim),
-                    !self.brightness.dimmed,
+                    if self.brightness.dimmed {
+                        SliderMode::Held
+                    } else {
+                        SliderMode::Live
+                    },
                     spacing,
                 ),
                 TileShape::Tall,
@@ -616,7 +624,11 @@ impl App {
                     self.microphone.percent.unwrap_or(0.0),
                     Message::SetMicrophone,
                     Some(Message::ToggleMicrophoneMute),
-                    !self.microphone.muted,
+                    if self.microphone.muted {
+                        SliderMode::Held
+                    } else {
+                        SliderMode::Live
+                    },
                     spacing,
                 ),
                 TileShape::Tall,

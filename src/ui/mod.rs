@@ -363,7 +363,11 @@ pub struct ConnectivityRow<'a, Msg> {
     /// Wi-Fi, for instance, where flipping it would do nothing.
     pub on_toggle: Option<Msg>,
     /// Pressing the row body, to drill into that module's page.
-    pub on_press: Msg,
+    ///
+    /// `None` makes the row inert. The Settings preview needs that: a live
+    /// button inside a tile captures the pointer, so the tile above it never
+    /// sees the press and can be neither selected nor dragged.
+    pub on_press: Option<Msg>,
 }
 
 /// The Wide tile grouping Wi-Fi, Bluetooth and VPN.
@@ -408,19 +412,27 @@ pub fn connectivity_tile<'a, Msg: Clone + 'static>(
             switch = switch.on_toggle(move |_| msg.clone());
         }
 
+        let inner = row::with_capacity(2)
+            .align_y(Alignment::Center)
+            .spacing(spacing.gap)
+            .push(icon::from_name(row_data.icon_name).size(ICON_SIZE))
+            .push(labels.width(Length::Fill));
+
         // The row body is the button; the switch sits outside it so a press
-        // on the switch does not also open the page.
-        let body = button::custom(
-            row::with_capacity(2)
-                .align_y(Alignment::Center)
-                .spacing(spacing.gap)
-                .push(icon::from_name(row_data.icon_name).size(ICON_SIZE))
-                .push(labels.width(Length::Fill)),
-        )
-        .padding(Padding::from([spacing.pad_y / 4, spacing.pad_x / 2]))
-        .class(button::ButtonClass::Text)
-        .width(Length::Fill)
-        .on_press(row_data.on_press);
+        // on the switch does not also open the page. With no message it is a
+        // plain container instead — see the note on `on_press`.
+        let body: Element<'a, Msg> = match row_data.on_press {
+            Some(msg) => button::custom(inner)
+                .padding(Padding::from([spacing.pad_y / 4, spacing.pad_x / 2]))
+                .class(button::ButtonClass::Text)
+                .width(Length::Fill)
+                .on_press(msg)
+                .into(),
+            None => container(inner)
+                .padding(Padding::from([spacing.pad_y / 4, spacing.pad_x / 2]))
+                .width(Length::Fill)
+                .into(),
+        };
 
         column = column.push(
             row::with_capacity(2)
@@ -458,16 +470,34 @@ const CONNECTIVITY_LABEL_CHARS: usize = 10;
 /// row always had. When `enabled` is false the track is replaced by an inert
 /// bar at the level it was, so a muted tile still says "you were at 45%" and
 /// dragging cannot silently set a new value on a muted device.
+/// How much of a slider tile is live.
+///
+/// Three states, not two booleans: "muted" and "a picture of a slider" look
+/// alike but behave differently, and the pair `(enabled, interactive)` had a
+/// fourth combination that means nothing.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SliderMode {
+    /// In the popup, device on: the track drags, the icon mutes.
+    Live,
+    /// In the popup, device muted or dimmed: a bar at the level it was, and
+    /// the icon still works so you can bring it back.
+    Held,
+    /// In the Settings preview: a picture. Nothing inside responds, because a
+    /// live slider captures every drag before the tile above it can be picked
+    /// up and moved.
+    Inert,
+}
+
 pub fn wide_slider_tile<'a, Msg: Clone + 'static>(
     icon_name: &'a str,
     label: impl Into<String>,
     value: f64,
     on_change: impl Fn(f64) -> Msg + 'a,
     on_icon_press: Option<Msg>,
-    enabled: bool,
+    mode: SliderMode,
     spacing: Spacing,
 ) -> Element<'a, Msg> {
-    let leading: Element<'a, Msg> = match on_icon_press {
+    let leading: Element<'a, Msg> = match on_icon_press.filter(|_| mode != SliderMode::Inert) {
         Some(msg) => button::icon(icon::from_name(icon_name).size(ICON_SIZE))
             .padding(spacing.pad_y / 2)
             .on_press(msg)
@@ -477,7 +507,7 @@ pub fn wide_slider_tile<'a, Msg: Clone + 'static>(
             .into(),
     };
 
-    let track: Element<'a, Msg> = if enabled {
+    let track: Element<'a, Msg> = if mode == SliderMode::Live {
         slider(0.0..=100.0, value, on_change)
             .step(1.0)
             .width(Length::Fill)

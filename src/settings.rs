@@ -23,7 +23,8 @@ use crate::config::{Config, PanelIcon, TileStyle};
 use crate::fl;
 use crate::tile_layout::{TileKey, TileShape};
 use crate::ui::{
-    connectivity_tile, icons, tile_grid, wide_slider_tile, ConnectivityRow, Spacing, Tile,
+    connectivity_tile, icons, tile_grid, wide_slider_tile, ConnectivityRow, SliderMode, Spacing,
+    Tile,
 };
 
 const WINDOW_WIDTH: f32 = 560.0;
@@ -507,7 +508,7 @@ impl Settings {
                     state: None,
                     on: enabled,
                     on_toggle: None,
-                    on_press: Message::Noop,
+                    on_press: None,
                 })
                 .collect();
                 // The popup's own Tall height: with the switch rows gone, a
@@ -520,7 +521,7 @@ impl Settings {
                 60.0,
                 |_| Message::Noop,
                 None,
-                enabled,
+                SliderMode::Inert,
                 spacing,
             ),
             TileKey::Brightness => wide_slider_tile(
@@ -529,7 +530,7 @@ impl Settings {
                 70.0,
                 |_| Message::Noop,
                 None,
-                enabled,
+                SliderMode::Inert,
                 spacing,
             ),
             TileKey::Microphone => wide_slider_tile(
@@ -538,7 +539,7 @@ impl Settings {
                 50.0,
                 |_| Message::Noop,
                 None,
-                enabled,
+                SliderMode::Inert,
                 spacing,
             ),
             other => {
