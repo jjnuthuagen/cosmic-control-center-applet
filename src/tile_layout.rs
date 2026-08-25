@@ -638,3 +638,214 @@ mod pack_tests {
         assert!(pack.tiles.iter().all(|p| p.width == 1 && p.height == 1));
     }
 }
+
+/// One horizontal slice of the grid, ready to be drawn without a grid
+/// widget.
+///
+/// libcosmic's `Grid` is taffy underneath, and taffy attributes a spanning
+/// item's width to the first track it spans rather than splitting it — so a
+/// Wide tile made column one 512px and column two nothing. Rather than fight
+/// that, the placements are cut into bands that plain rows and columns can
+/// express exactly:
+///
+/// * A `Flat` band is one grid row: a Wide on its own, or two one-cell
+///   entries side by side (Small, ghost, or a Tall's *upper* half — see
+///   below).
+/// * A `Tall` band is two grid rows that a Tall tile straddles: two columns
+///   side by side, each holding whatever sits in that column across both
+///   rows. A Tall is one entry of double height; two Smalls (or a Small and
+///   a ghost) stack to the same height.
+///
+/// The packer guarantees a Wide never lands in a row a Tall straddles (it
+/// waits for a clear row), which is what makes this split total.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Band {
+    /// Entries in column order. Each is `(index, is_ghost)`, where `index`
+    /// points into the original tile list for real tiles.
+    Flat(Vec<Entry>),
+    /// Left column entries (top to bottom), right column entries.
+    Tall(Vec<Entry>, Vec<Entry>),
+}
+
+/// A cell's occupant.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Entry {
+    /// A tile from the input list, by index.
+    Tile(usize),
+    Ghost,
+}
+
+/// Cut a [`Pack`] into drawable bands.
+pub fn bands(pack: &Pack) -> Vec<Band> {
+    // (row, column) → entry, plus which rows a Tall straddles.
+    let mut cell: std::collections::HashMap<(u16, u16), (Entry, Placement)> =
+        std::collections::HashMap::new();
+    let mut tall_top_rows = std::collections::HashSet::new();
+
+    for (i, p) in pack.tiles.iter().enumerate() {
+        cell.insert((p.row, p.column), (Entry::Tile(i), *p));
+        if p.height == 2 {
+            tall_top_rows.insert(p.row);
+        }
+    }
+    for p in &pack.ghosts {
+        cell.insert((p.row, p.column), (Entry::Ghost, *p));
+    }
+
+    let mut out = Vec::new();
+    let mut row = 1u16;
+    while row <= pack.rows {
+        if tall_top_rows.contains(&row) {
+            // Two rows, two columns. Each column lists what sits in it across
+            // both rows, top to bottom; a Tall appears once (it covers both).
+            let column_entries = |col: u16| -> Vec<Entry> {
+                let mut v = Vec::with_capacity(2);
+                for r in [row, row + 1] {
+                    if let Some((entry, p)) = cell.get(&(r, col)) {
+                        // The lower row of a Tall has no cell of its own —
+                        // the Tall was inserted at its top row only.
+                        let _ = p;
+                        v.push(*entry);
+                    }
+                }
+                v
+            };
+            out.push(Band::Tall(column_entries(1), column_entries(2)));
+            row += 2;
+        } else {
+            let mut entries = Vec::with_capacity(2);
+            let mut col = 1u16;
+            while col <= 2 {
+                if let Some((entry, p)) = cell.get(&(row, col)) {
+                    entries.push(*entry);
+                    col += p.width;
+                } else {
+                    col += 1;
+                }
+            }
+            out.push(Band::Flat(entries));
+            row += 1;
+        }
+    }
+    out
+}
+
+#[cfg(test)]
+mod band_tests {
+    use super::*;
+
+    #[test]
+    fn two_smalls_are_one_flat_band() {
+        let p = pack(&[TileShape::Small, TileShape::Small], 2);
+        assert_eq!(
+            bands(&p),
+            vec![Band::Flat(vec![Entry::Tile(0), Entry::Tile(1)])]
+        );
+    }
+
+    #[test]
+    fn a_lone_small_gets_a_ghost_beside_it() {
+        let p = pack(&[TileShape::Small], 2);
+        assert_eq!(
+            bands(&p),
+            vec![Band::Flat(vec![Entry::Tile(0), Entry::Ghost])]
+        );
+    }
+
+    #[test]
+    fn a_wide_is_a_flat_band_of_one() {
+        let p = pack(&[TileShape::Wide], 2);
+        assert_eq!(bands(&p), vec![Band::Flat(vec![Entry::Tile(0)])]);
+    }
+
+    #[test]
+    fn a_tall_with_two_smalls_beside_it_is_one_tall_band() {
+        // Tall in col 1 rows 1-2; Smalls fill col 2 rows 1 and 2.
+        let p = pack(&[TileShape::Tall, TileShape::Small, TileShape::Small], 2);
+        assert_eq!(
+            bands(&p),
+            vec![Band::Tall(
+                vec![Entry::Tile(0)],
+                vec![Entry::Tile(1), Entry::Tile(2)]
+            )]
+        );
+    }
+
+    #[test]
+    fn a_tall_alone_gets_two_ghosts_stacked_beside_it() {
+        let p = pack(&[TileShape::Tall], 2);
+        assert_eq!(
+            bands(&p),
+            vec![Band::Tall(
+                vec![Entry::Tile(0)],
+                vec![Entry::Ghost, Entry::Ghost]
+            )]
+        );
+    }
+
+    #[test]
+    fn two_talls_side_by_side_are_one_band() {
+        let p = pack(&[TileShape::Tall, TileShape::Tall], 2);
+        assert_eq!(
+            bands(&p),
+            vec![Band::Tall(vec![Entry::Tile(0)], vec![Entry::Tile(1)])]
+        );
+    }
+
+    #[test]
+    fn a_wide_then_a_tall_band_then_a_flat_row_cut_cleanly() {
+        // Wide (row 1) / Tall + Small + Small (rows 2-3) / Small + ghost (row 4).
+        let p = pack(
+            &[
+                TileShape::Wide,
+                TileShape::Tall,
+                TileShape::Small,
+                TileShape::Small,
+                TileShape::Small,
+            ],
+            2,
+        );
+        assert_eq!(
+            bands(&p),
+            vec![
+                Band::Flat(vec![Entry::Tile(0)]),
+                Band::Tall(vec![Entry::Tile(1)], vec![Entry::Tile(2), Entry::Tile(3)]),
+                Band::Flat(vec![Entry::Tile(4), Entry::Ghost]),
+            ]
+        );
+    }
+
+    #[test]
+    fn every_tile_appears_exactly_once_across_bands() {
+        for shapes in [
+            vec![TileShape::Small; 5],
+            vec![
+                TileShape::Wide,
+                TileShape::Tall,
+                TileShape::Small,
+                TileShape::Wide,
+            ],
+            vec![
+                TileShape::Tall,
+                TileShape::Tall,
+                TileShape::Tall,
+                TileShape::Small,
+            ],
+        ] {
+            let p = pack(&shapes, 2);
+            let mut seen = vec![0usize; shapes.len()];
+            for band in bands(&p) {
+                let entries: Vec<Entry> = match band {
+                    Band::Flat(e) => e,
+                    Band::Tall(l, r) => l.into_iter().chain(r).collect(),
+                };
+                for e in entries {
+                    if let Entry::Tile(i) = e {
+                        seen[i] += 1;
+                    }
+                }
+            }
+            assert!(seen.iter().all(|&n| n == 1), "{shapes:?} → {seen:?}");
+        }
+    }
+}

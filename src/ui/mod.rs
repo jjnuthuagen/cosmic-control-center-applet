@@ -25,7 +25,7 @@ use cosmic::widget::{
 use cosmic::{theme, Element};
 
 use crate::config::TileStyle;
-use crate::tile_layout::{pack, Placement, TileShape};
+use crate::tile_layout::{pack, TileShape};
 
 /// Icon size inside a tile and a list row.
 pub const ICON_SIZE: u16 = 20;
@@ -273,80 +273,78 @@ pub fn ghost_tile<'a, Msg: 'a>(spacing: Spacing) -> Element<'a, Msg> {
 
 /// Pack shaped tiles into a two-column grid.
 ///
-/// Returns a single grid `Element` — the popup's page pushes it into whatever
-/// column is above it. Uses libcosmic's `Grid` widget to place each tile at
-/// the (row, column) the packer chose, and drops a ghost into every remaining
-/// empty cell so an odd row and gaps around Wide/Tall tiles all read as
-/// deliberate rather than as missing tiles.
+/// Returns a single `Element` — a column of bands — that the popup's page
+/// pushes into whatever column is above it. No grid widget: libcosmic's
+/// `Grid` is taffy, and taffy gives a spanning item's width to the first
+/// track it spans, which made a Wide tile eat column two. Plain rows and
+/// columns express the packer's placements exactly; see
+/// [`crate::tile_layout::bands`] for the split.
 ///
-/// Two rules the caller relies on:
+/// Rules the caller relies on:
 ///
-///  * The tile at index `i` in `tiles` is placed at `packed.tiles[i]`. Nothing
-///    reorders. A Wide behind a Small leaves a ghost to the Small's right, not
-///    a swap.
-///  * A shape whose footprint cannot fit the grid (e.g. a Wide in a
-///    one-column grid) is dropped by the packer entirely — the tile is not
-///    drawn. That has to be a rare accident given the fixed two-column layout,
-///    but it prevents a panic when it happens.
+///  * The tile at index `i` in `tiles` is drawn where `pack` put it. Nothing
+///    reorders. A Wide behind a Small leaves a ghost to the Small's right,
+///    not a swap.
+///  * A shape whose footprint cannot fit (a Wide in a one-column grid) is
+///    dropped by the packer — not drawn — rather than panicking.
 pub fn tile_grid<'a, Msg: Clone + 'static>(
     tiles: Vec<(Element<'a, Msg>, TileShape)>,
-    width: f32,
     spacing: Spacing,
 ) -> Element<'a, Msg> {
+    use crate::tile_layout::{bands, Band, Entry};
+
     let shapes: Vec<TileShape> = tiles.iter().map(|(_, shape)| *shape).collect();
     let packed = pack(&shapes, 2);
+    let layout = bands(&packed);
 
-    // libcosmic's Grid is taffy underneath, and taffy sizes a column to its
-    // children's *intrinsic* width — which for a `Length::Fill` child is zero.
-    // Every tile is built with Fill so it can stretch inside a row, and the
-    // first grid drew as a 12px sliver. So each child is wrapped in a
-    // container of the exact pixel width its cell should have, computed from
-    // the grid's inner width rather than left for layout to discover.
-    let gap = f32::from(spacing.gap);
-    let cell = ((width - gap) / 2.0).max(0.0);
-    let span = |columns: u16| -> f32 {
-        if columns >= 2 {
-            width
-        } else {
-            cell
+    // Take elements out by index as bands ask for them. `Option` so each is
+    // moved exactly once; the band tests pin that every index is asked for
+    // exactly once, so a `None` here is a packer/bands mismatch, not a user
+    // state — draw a ghost rather than panic inside `view`.
+    let mut slots: Vec<Option<Element<'a, Msg>>> =
+        tiles.into_iter().map(|(e, _)| Some(e)).collect();
+    let mut take = |entry: Entry| -> Element<'a, Msg> {
+        match entry {
+            Entry::Tile(i) => slots
+                .get_mut(i)
+                .and_then(Option::take)
+                .unwrap_or_else(|| ghost_tile(spacing)),
+            Entry::Ghost => ghost_tile(spacing),
         }
     };
 
-    let mut grid = cosmic::widget::grid()
-        .column_spacing(spacing.gap)
-        .row_spacing(spacing.gap)
-        .width(Length::Fixed(width));
+    let mut column = cosmic::widget::column::with_capacity(layout.len()).spacing(spacing.gap);
 
-    for ((element, _), placement) in tiles.into_iter().zip(packed.tiles.iter()) {
-        let sized = container(element).width(Length::Fixed(span(placement.width)));
-        grid = grid.push_with(sized, |assignment| assign(assignment, *placement));
+    for band in layout {
+        let element: Element<'a, Msg> = match band {
+            Band::Flat(entries) => {
+                let mut r = row::with_capacity(entries.len()).spacing(spacing.gap);
+                for entry in entries {
+                    r = r.push(container(take(entry)).width(Length::FillPortion(1)));
+                }
+                r.into()
+            }
+            Band::Tall(left, right) => {
+                let stack =
+                    |entries: Vec<Entry>, take: &mut dyn FnMut(Entry) -> Element<'a, Msg>| {
+                        let mut c = cosmic::widget::column::with_capacity(entries.len())
+                            .spacing(spacing.gap);
+                        for entry in entries {
+                            c = c.push(take(entry));
+                        }
+                        container(c).width(Length::FillPortion(1))
+                    };
+                row::with_capacity(2)
+                    .spacing(spacing.gap)
+                    .push(stack(left, &mut take))
+                    .push(stack(right, &mut take))
+                    .into()
+            }
+        };
+        column = column.push(element);
     }
 
-    for placement in packed.ghosts {
-        let sized = container(ghost_tile(spacing)).width(Length::Fixed(cell));
-        grid = grid.push_with(sized, |assignment| assign(assignment, placement));
-    }
-
-    grid.into()
-}
-
-/// Translate our `Placement` into libcosmic's `Grid` assignment.
-///
-/// libcosmic's `Assignment` keeps its fields private and exposes a
-/// `From<(col, row, width, height)>` conversion, which is what this uses. The
-/// discarded `_prior` matters only because `push_with` hands the callback the
-/// default assignment; we ignore it and produce a fresh one from our own
-/// [`Placement`].
-fn assign(
-    _prior: cosmic::widget::grid::widget::Assignment,
-    placement: Placement,
-) -> cosmic::widget::grid::widget::Assignment {
-    cosmic::widget::grid::widget::Assignment::from((
-        placement.column,
-        placement.row,
-        placement.width,
-        placement.height,
-    ))
+    column.into()
 }
 
 /// One row inside the [`connectivity_tile`].
