@@ -103,7 +103,10 @@ seen once. If you only have ten minutes, do this section.
 - [ ] Tapping a tile without moving the pointer selects or deselects it, and the popup gains or loses it.
 - [ ] Pressing and dragging across to another tile reorders instead: the dragged tile takes a solid accent outline, the rest make room, and releasing keeps it there.
 - [ ] A drag does not also toggle the tile it started on.
-- [ ] Connectivity is a narrow tile, one column wide and two rows tall, with Wi-Fi/Bluetooth/VPN stacked inside it.
+- [ ] Connectivity is a narrow tile, one column wide and two rows tall, with Wi-Fi/Bluetooth/VPN stacked inside it — all three rows fully visible, none clipped at the bottom.
+- [ ] Connectivity rows have no switches; pressing a row opens that module's page, and the row's icon takes the same accent treatment as a standalone tile.
+- [ ] The VPN row is present even with no VPN configured, and its page says so plainly.
+- [ ] The tiled/floating icon is the same colour as the other tile icons in both light and dark mode.
 - [ ] Volume and brightness are wide tiles, two columns by one row, with horizontal tracks.
 - [ ] The group and the standalone tiles are independent: turning on both `connectivity` and `wifi` shows Wi-Fi twice; turning `wifi` off leaves the group's Wi-Fi row working.
 - [ ] Game Mode appears directly after Performance in the same list, not under a divider.
