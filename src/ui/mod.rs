@@ -222,6 +222,30 @@ impl<'a, Msg: Clone + 'static> Tile<'a, Msg> {
     }
 }
 
+/// The surface every non-button tile draws on: the same fill a standard
+/// button has.
+///
+/// `Tile` is a `button::custom` with `ButtonClass::Standard`, and libcosmic
+/// paints that with `cosmic.button.base`. The slider and Connectivity tiles
+/// are containers, not buttons, so they have to ask for that colour by name
+/// — `theme::Container::Primary` looked close in isolation but is the
+/// *layer* colour, which under frosted glass is the popup's own translucent
+/// background. Those tiles then read as holes in the popup: the whole thing
+/// looked un-frosted and the sliders looked like a different kind of tile.
+fn tile_surface<'a>() -> theme::Container<'a> {
+    theme::Container::Custom(Box::new(|theme| {
+        let cosmic = theme.cosmic();
+        container::Style {
+            background: Some(Background::Color(cosmic.button.base.into())),
+            border: Border {
+                radius: cosmic.corner_radii.radius_s.into(),
+                ..Default::default()
+            },
+            ..Default::default()
+        }
+    }))
+}
+
 /// The icon sitting on its own base shape, used by [`TileStyle::Medium`].
 ///
 /// The base is always drawn, so the tile does not change shape when the control
@@ -484,7 +508,7 @@ pub fn connectivity_tile<'a, Msg: Clone + 'static>(
         .padding(spacing.padding())
         .width(Length::Fill)
         .height(Length::Fixed(height))
-        .class(theme::Container::Primary)
+        .class(tile_surface())
         .into()
 }
 
@@ -565,7 +589,7 @@ pub fn wide_slider_tile<'a, Msg: Clone + 'static>(
         .width(Length::Fill)
         .height(Length::Fixed(tile_height(spacing)))
         .align_y(Alignment::Center)
-        .class(theme::Container::Primary)
+        .class(tile_surface())
         .into();
 
     tooltip(tile, text::body(label.into()), tooltip::Position::Top).into()
