@@ -71,15 +71,6 @@ impl TileKey {
             _ => TileShape::Small,
         }
     }
-
-    /// True when this key names the grouped Connectivity tile.
-    ///
-    /// A helper because the "hide the three standalone tiles" check happens in
-    /// several places, and comparing with `==` was easy to get wrong once the
-    /// enum grew.
-    pub fn is_connectivity_group(self) -> bool {
-        matches!(self, TileKey::Connectivity)
-    }
 }
 
 /// A tile's footprint on the grid.

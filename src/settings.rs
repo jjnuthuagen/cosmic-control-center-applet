@@ -21,7 +21,7 @@ use cosmic::{Application, Element};
 
 use crate::config::{Config, PanelIcon, TileStyle};
 use crate::fl;
-use crate::tile_layout::{TileKey, TileShape, DEFAULT_ORDER};
+use crate::tile_layout::{TileKey, TileShape};
 use crate::ui::{
     connectivity_tile, icons, tall_slider_tile, tile_grid, ConnectivityRow, Spacing, Tile,
 };
@@ -59,6 +59,27 @@ fn preview_module_key(key: TileKey) -> (&'static str, TileShape) {
         TileKey::Microphone => "microphone",
     };
     (module, key.default_shape())
+}
+
+/// The picked tile, outlined in the accent so it is unmistakably the one
+/// that will move; everything else passes through untouched.
+fn picked_frame(tile: Element<'_, Message>, picked: bool) -> Element<'_, Message> {
+    if !picked {
+        return tile;
+    }
+    container(tile)
+        .class(cosmic::theme::Container::Custom(Box::new(|theme| {
+            let cosmic = theme.cosmic();
+            cosmic::widget::container::Style {
+                border: cosmic::iced::Border {
+                    radius: cosmic.corner_radii.radius_s.into(),
+                    width: 2.0,
+                    color: cosmic.accent_color().into(),
+                },
+                ..Default::default()
+            }
+        })))
+        .into()
 }
 
 /// A preview tile with its module switch beneath it.
@@ -205,6 +226,12 @@ pub struct Settings {
     error: Option<String>,
     /// The tab bar's model, which owns which tab is showing.
     tabs: segmented_button::SingleSelectModel,
+    /// A tile picked up for moving, if one is. See [`Message::PickTile`].
+    picked: Option<TileKey>,
+    /// The order being edited while a tile is picked. Committed to config on
+    /// drop, discarded on cancel — so a cancelled move leaves the file as it
+    /// was rather than half-applied.
+    working_order: Vec<TileKey>,
     /// Everything the About page displays. Built once and kept, because
     /// `widget::about` borrows from it for the lifetime of the view.
     about: cosmic::widget::about::About,
@@ -216,6 +243,14 @@ pub enum Message {
     /// Preview tiles need a press handler to render as buttons; nothing
     /// happens on press, because there is no module behind them here.
     Noop,
+    /// Tap on a preview tile. Three things it can mean, decided in `update`:
+    /// nothing picked → pick this one; this one picked → cancel; another
+    /// picked → drop it here and save.
+    PickTile(TileKey),
+    /// The pointer entered a preview tile. While something is picked, the
+    /// picked tile moves to this tile's slot in the working order and the
+    /// grid re-packs around it — that live shuffle is the placement cue.
+    HoverTile(TileKey),
     /// Another `--settings` invocation asked this window to come forward.
     Present,
     ToggleModule(&'static str, bool),
@@ -324,7 +359,17 @@ impl Settings {
             let (module_key, shape) = preview_module_key(key);
             let enabled = self.module_enabled(module_key);
             let tile = self.preview_tile(key, enabled, theme_spacing);
-            tiles.push((with_switch(tile, module_key, enabled, spacing), shape));
+            let tile = picked_frame(tile, self.picked == Some(key));
+            // Tap picks or drops; entering while something is picked moves it
+            // here. `mouse_area` rather than the tile's own button so the tile
+            // stays a plain preview and the pick lives in one place.
+            let tile = cosmic::widget::mouse_area(tile)
+                .on_press(Message::PickTile(key))
+                .on_enter(Message::HoverTile(key));
+            tiles.push((
+                with_switch(tile.into(), module_key, enabled, spacing),
+                shape,
+            ));
         }
 
         section = section.push(tile_grid(tiles, theme_spacing));
@@ -337,23 +382,24 @@ impl Settings {
     /// Bluetooth and VPN live inside it and do not appear on their own; with
     /// it off, the three come first as standalone tiles.
     fn preview_order(&self) -> Vec<TileKey> {
-        let mut order = Vec::with_capacity(DEFAULT_ORDER.len() + 3);
-        if self.config.modules.connectivity {
-            order.push(TileKey::Connectivity);
-        } else {
-            order.extend([TileKey::Wifi, TileKey::Bluetooth, TileKey::Vpn]);
+        // Mid-move, the order being edited is the one to draw.
+        if self.picked.is_some() && !self.working_order.is_empty() {
+            return self.working_order.clone();
         }
-        // Game Mode and the charge limit live inside the Battery page, and
-        // Media is a full-width row under the grid. None of the three is a
-        // grid tile, so none belongs in a preview of the grid.
-        order.extend(DEFAULT_ORDER.iter().copied().filter(|k| {
-            !k.is_connectivity_group()
-                && !matches!(
-                    k,
-                    TileKey::GameMode | TileKey::Media | TileKey::ChargeThreshold
-                )
-        }));
-        order
+
+        // Otherwise the stored order, reconciled the same way the popup does
+        // it, then filtered to what is actually a grid tile here.
+        let grouped = self.config.modules.connectivity;
+        crate::tile_layout::resolve_order(&self.config.appearance.order, |k| match k {
+            // The group and its members are mutually exclusive on the grid.
+            TileKey::Connectivity => grouped,
+            TileKey::Wifi | TileKey::Bluetooth | TileKey::Vpn => !grouped,
+            // Game Mode and the charge limit live inside the Battery page,
+            // and Media is a full-width row under the grid. None is a grid
+            // tile, so none belongs in a preview of the grid.
+            TileKey::GameMode | TileKey::Media | TileKey::ChargeThreshold => false,
+            _ => true,
+        })
     }
 
     /// One preview tile, using the real widgets with placeholder state.
@@ -667,6 +713,8 @@ impl Application for Settings {
             error: None,
             tabs,
             about,
+            picked: None,
+            working_order: Vec::new(),
         };
 
         // Set both titles right here, synchronously — the InitTitle Task path
@@ -694,6 +742,38 @@ impl Application for Settings {
             }
             Message::Tab(entity) => self.tabs.activate(entity),
             Message::Noop => {}
+            Message::PickTile(key) => match self.picked {
+                None => {
+                    self.working_order = self.preview_order();
+                    self.picked = Some(key);
+                }
+                Some(picked) if picked == key => {
+                    // Tapping the picked tile again puts it down where it was.
+                    self.picked = None;
+                    self.working_order.clear();
+                }
+                Some(_) => {
+                    // Drop. The hover already moved it into this slot; all
+                    // that is left is to make the working order the real one.
+                    self.config.appearance.order = std::mem::take(&mut self.working_order);
+                    self.picked = None;
+                    self.save();
+                }
+            },
+            Message::HoverTile(over) => {
+                if let Some(picked) = self.picked {
+                    if picked != over {
+                        let order = &mut self.working_order;
+                        if let (Some(from), Some(to)) = (
+                            order.iter().position(|&k| k == picked),
+                            order.iter().position(|&k| k == over),
+                        ) {
+                            let moved = order.remove(from);
+                            order.insert(to, moved);
+                        }
+                    }
+                }
+            }
             Message::Present => {
                 // Raise and focus, rather than opening a second window. The
                 // window may be behind something or on another workspace, so

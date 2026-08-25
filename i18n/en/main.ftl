@@ -126,7 +126,7 @@ tab-about = About
 settings-window-title = Control Center Settings
 
 settings-controls = Controls
-settings-preview-detail = This is the grid the panel button opens. Switch a tile off to hide it. The words on the tiles are placeholders here; the popup shows live state.
+settings-preview-detail = This is the grid the panel button opens. Tap a tile to pick it up, move across the grid to see where it will land, tap again to drop it. Switch a tile off to hide it. The words on the tiles are placeholders; the popup shows live state.
 settings-controls-detail = Choose what appears in the popup. Some controls only show up if your machine has the hardware for them.
 
 settings-custom = Your tiles
