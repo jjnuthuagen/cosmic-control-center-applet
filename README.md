@@ -31,8 +31,8 @@ Tiles come in three shapes and pack into two columns:
 | Shape | Footprint | Used by |
 |---|---|---|
 | Small | 1 × 1 | Most controls |
-| Wide | 2 × 1 | Connectivity — Wi-Fi, Bluetooth and VPN in one card with a switch per row |
-| Tall | 1 × 2 | Volume, brightness, microphone: icon over a vertical slider over the percentage |
+| Tall | 1 × 2 | Connectivity — Wi-Fi, Bluetooth and VPN stacked, a switch each |
+| Wide | 2 × 1 | Volume, brightness, microphone: icon, track, percentage |
 
 The packer keeps your order. A Wide tile behind a Small one leaves a ghost
 slot to the Small's right rather than swapping them — so when you move a
@@ -43,8 +43,16 @@ up, move across the grid to see the others shuffle around where it will
 land, tap again to drop it. The order is written to `config.toml` as
 `[appearance] order = […]`; you can also edit that list by hand.
 
-`connectivity = false` under `[modules]` splits the group back into three
-Small tiles.
+The group and the individual tiles are independent switches, so you can have
+whichever suits: `connectivity` draws the grouped tile, and `wifi`,
+`bluetooth` and `vpn` each draw a standalone tile. Turn on both and Wi-Fi
+appears twice, which is allowed — some people want the group for switching
+and a big tile for the SSID. Out of the box the group is on and the three
+standalone tiles are off.
+
+Switching off a standalone tile does not empty that row inside the group:
+the group's rows follow the hardware, and the module itself keeps running as
+long as either wants it.
 
 ## Modules
 

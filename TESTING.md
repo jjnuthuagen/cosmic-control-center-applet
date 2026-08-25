@@ -101,7 +101,9 @@ seen once. If you only have ten minutes, do this section.
 - [ ] Muting volume from its icon replaces the vertical slider with a filled bar at the old level; unmuting brings the slider back at that level.
 - [ ] Settings → Tiles shows the same grid. Tap a tile: it takes an accent outline. Move over another tile: the picked one moves there and the rest shuffle. Tap again: it stays, and the popup opens in the new order next time.
 - [ ] Tapping the picked tile itself puts it back where it was and writes nothing.
-- [ ] `connectivity = false` in config.toml turns the wide card back into three small tiles, in both the popup and the Settings preview.
+- [ ] Connectivity is a narrow tile, one column wide and two rows tall, with Wi-Fi/Bluetooth/VPN stacked inside it.
+- [ ] Volume and brightness are wide tiles, two columns by one row, with horizontal tracks.
+- [ ] The group and the standalone tiles are independent: turning on both `connectivity` and `wifi` shows Wi-Fi twice; turning `wifi` off leaves the group's Wi-Fi row working.
 - [ ] Game Mode appears directly after Performance in the same list, not under a divider.
 
 ### Panel and popup

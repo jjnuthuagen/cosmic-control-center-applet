@@ -6,9 +6,13 @@
 # typo shows up as a warning instead of silently doing nothing.
 
 [modules]
-# Group Wi-Fi, Bluetooth and VPN into one wide tile with a switch per row,
-# the way the macOS Control Centre does. Set to false for three separate
-# tiles. Each row still honours its own flag below.
+# The grouped Wi-Fi + Bluetooth + VPN tile: a narrow stack of switches, the
+# way the macOS Control Centre does it.
+#
+# Independent of `wifi`, `bluetooth` and `vpn` below, which each draw a
+# standalone tile. Have the group, the individual tiles, both, or neither.
+# Switching off `wifi` hides the standalone Wi-Fi tile; it does not empty
+# the group's Wi-Fi row, and the module keeps running while either wants it.
 connectivity = true
 # A control set to false here is never constructed and never connects to its
 # bus. Controls also hide themselves when the hardware or service they need is
