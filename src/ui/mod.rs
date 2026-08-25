@@ -69,7 +69,33 @@ impl Spacing {
 /// base is included unconditionally so that switching tile style does not
 /// change the grid's geometry: the rows stay put and only the colouring moves.
 pub fn tile_height(spacing: Spacing) -> f32 {
-    f32::from(ICON_SIZE) + f32::from(spacing.pad_y) * 2.0 + icon_base_padding(spacing) * 2.0
+    // A single line of icon-plus-text — the floor.
+    let one_line =
+        f32::from(ICON_SIZE) + f32::from(spacing.pad_y) * 2.0 + icon_base_padding(spacing) * 2.0;
+
+    // But a Tall tile is exactly two of these plus a gap, and the Connectivity
+    // tile has to fit three rows inside that. Solving for the Small height that
+    // makes `tall_height` hold three rows at their natural size is what sets
+    // the grid's row height — which is why every tile got a little taller when
+    // the group went from two columns to one. The alternative was cramming the
+    // rows, and a row shorter than its own icon is not a row.
+    let three_rows = connectivity_row_height(spacing) * 3.0
+        + connectivity_row_gap(spacing) * 2.0
+        + f32::from(spacing.pad_y) * 2.0;
+    let from_rows = (three_rows - f32::from(spacing.gap)) / 2.0;
+
+    one_line.max(from_rows)
+}
+
+/// Height of one row inside the Connectivity tile: its icon on its base.
+pub fn connectivity_row_height(spacing: Spacing) -> f32 {
+    f32::from(ICON_SIZE) + icon_base_padding(spacing) * 2.0
+}
+
+/// Vertical gap between Connectivity rows — tighter than the grid's, because
+/// three rows are one control, not three neighbours.
+pub fn connectivity_row_gap(spacing: Spacing) -> f32 {
+    f32::from(spacing.gap) / 2.0
 }
 
 /// Padding inside the medium style's icon base.
@@ -391,9 +417,11 @@ pub fn connectivity_tile<'a, Msg: Clone + 'static>(
     style: TileStyle,
     spacing: Spacing,
 ) -> Element<'a, Msg> {
-    // The tile is one column wide and two rows tall, so three stacked rows
-    // have to be compact: the switch keeps its size, everything else gives.
-    let mut column = cosmic::widget::column::with_capacity(rows.len()).spacing(spacing.gap / 2);
+    // Each row is exactly `connectivity_row_height`, spaced by
+    // `connectivity_row_gap` — the same numbers `tile_height` was solved
+    // from, so three of them fit the Tall footprint by construction.
+    let mut column = cosmic::widget::column::with_capacity(rows.len())
+        .spacing(connectivity_row_gap(spacing) as u16);
 
     for row_data in rows {
         // Name only. The state line was dropped when the tile went from two
@@ -425,10 +453,15 @@ pub fn connectivity_tile<'a, Msg: Clone + 'static>(
         // The whole row is the button — press it to open that thing's page,
         // exactly as pressing a tile does. With no message it is a plain
         // container instead: see the note on `on_press`.
-        let padding = Padding::from([spacing.pad_y / 4, spacing.pad_x / 2]);
+        // No vertical padding of its own: the row's height is the icon on its
+        // base, and any padding here would have to come out of the budget
+        // `tile_height` already spent.
+        let padding = Padding::from([0, spacing.pad_x / 2]);
+        let height = Length::Fixed(connectivity_row_height(spacing));
         let body: Element<'a, Msg> = match row_data.on_press {
             Some(msg) => button::custom(inner)
                 .padding(padding)
+                .height(height)
                 .class(if signalled && style == TileStyle::High {
                     button::ButtonClass::Suggested
                 } else {
@@ -437,7 +470,11 @@ pub fn connectivity_tile<'a, Msg: Clone + 'static>(
                 .width(Length::Fill)
                 .on_press(msg)
                 .into(),
-            None => container(inner).padding(padding).width(Length::Fill).into(),
+            None => container(inner)
+                .padding(padding)
+                .height(height)
+                .width(Length::Fill)
+                .into(),
         };
 
         column = column.push(body);
@@ -697,6 +734,34 @@ mod tests {
             "tile height {height} leaves {} for a {ICON_SIZE}px icon",
             height - padding
         );
+    }
+
+    #[test]
+    fn three_connectivity_rows_fit_a_tall_tile() {
+        // The whole reason tile_height is solved from the rows: at the old
+        // one-line height the third row was clipped off the bottom.
+        for spacing in [
+            Spacing {
+                gap: 4,
+                pad_y: 4,
+                pad_x: 8,
+                section: 8,
+            },
+            Spacing {
+                gap: 8,
+                pad_y: 8,
+                pad_x: 16,
+                section: 16,
+            },
+        ] {
+            let inner = tall_height(spacing) - f32::from(spacing.pad_y) * 2.0;
+            let needed =
+                connectivity_row_height(spacing) * 3.0 + connectivity_row_gap(spacing) * 2.0;
+            assert!(
+                inner >= needed,
+                "{spacing:?}: Tall tile leaves {inner}px for rows that need {needed}px"
+            );
+        }
     }
 
     #[test]
