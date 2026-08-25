@@ -85,6 +85,7 @@ pub struct Settings {
 #[derive(Debug, Clone)]
 pub enum Message {
     ToggleModule(&'static str, bool),
+    ToggleCustom(usize, bool),
     SetStyle(TileStyle),
     SetIcon(PanelIcon),
     CustomInput(String),
@@ -168,6 +169,36 @@ impl Settings {
                             .on_toggle(move |value| Message::ToggleModule(key, value)),
                     ),
             );
+        }
+
+        // Tiles from `[[custom]]` in config.toml. They belong in the same list
+        // as everything else: from the user's side a tile they added and a tile
+        // that shipped are the same kind of thing, and having a switch for one
+        // but not the other is why a Screenshot tile could be seen in the popup
+        // and not found in here.
+        if !self.config.custom.is_empty() {
+            section = section
+                .push(divider::horizontal::default())
+                .push(text::caption(fl!("settings-custom-detail")));
+
+            for (index, tile) in self.config.custom.iter().enumerate() {
+                let mut labels = column::with_capacity(2)
+                    .push(text::body(tile.name.clone()).width(Length::Fill));
+                // Say what it runs. A tile called "Screenshot" is obvious; one
+                // called "Work" is not, and the command is the only thing that
+                // distinguishes two tiles with the same name.
+                labels = labels.push(text::caption(tile.command.join(" ")));
+
+                section = section.push(
+                    row::with_capacity(2)
+                        .align_y(Alignment::Center)
+                        .push(labels.width(Length::Fill))
+                        .push(
+                            toggler(tile.enabled)
+                                .on_toggle(move |value| Message::ToggleCustom(index, value)),
+                        ),
+                );
+            }
         }
 
         section.into()
@@ -304,6 +335,12 @@ impl Application for Settings {
             Message::ToggleModule(key, value) => {
                 self.set_module(key, value);
                 self.save();
+            }
+            Message::ToggleCustom(index, value) => {
+                if let Some(tile) = self.config.custom.get_mut(index) {
+                    tile.enabled = value;
+                    self.save();
+                }
             }
             Message::SetStyle(style) => {
                 self.config.appearance.style = style;

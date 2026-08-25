@@ -66,10 +66,17 @@ pub fn resolve(candidates: &[&'static str]) -> &'static str {
 
 /// Battery, by charge and charging state.
 ///
-/// The `battery-level-N` family is the modern freedesktop naming and steps in
-/// tens, so the level is rounded to the nearest ten rather than passed through.
-/// Older themes only ship the coarse `battery-{empty,caution,low,good,full}`
-/// set, which is why those follow as candidates.
+/// Uses COSMIC's own `cosmic-applet-battery-level-N` family, which is what the
+/// stock battery applet draws — so the tile matches the battery already on the
+/// panel instead of sitting next to it in a different style. The two families
+/// are not interchangeable: the generic freedesktop `battery-level-N` icons are
+/// a portrait battery in most themes, COSMIC's are landscape, and mixing them
+/// is exactly the mismatch this fixes.
+///
+/// The generic names follow as fallbacks, because a user on GNOME or KDE with
+/// no COSMIC icon theme installed must still get a battery rather than a blank
+/// square. Older themes ship only the coarse
+/// `battery-{caution,low,good,full}` set, which is why those come last.
 pub fn battery(percent: Option<f64>, charging: bool) -> &'static str {
     let Some(percent) = percent else {
         // No battery: a desktop showing power profiles only.
@@ -81,21 +88,58 @@ pub fn battery(percent: Option<f64>, charging: bool) -> &'static str {
     if charging {
         return match level {
             100 => resolve(&[
-                "battery-level-100-charged-symbolic",
+                "cosmic-applet-battery-level-100-charging-symbolic",
+                "cosmic-applet-battery-level-100-symbolic",
                 "battery-level-100-charging-symbolic",
+                "battery-level-100-charged-symbolic",
                 "battery-full-charged-symbolic",
                 "battery-symbolic",
             ]),
-            90 => resolve(&["battery-level-90-charging-symbolic", "battery-symbolic"]),
-            80 => resolve(&["battery-level-80-charging-symbolic", "battery-symbolic"]),
-            70 => resolve(&["battery-level-70-charging-symbolic", "battery-symbolic"]),
-            60 => resolve(&["battery-level-60-charging-symbolic", "battery-symbolic"]),
-            50 => resolve(&["battery-level-50-charging-symbolic", "battery-symbolic"]),
-            40 => resolve(&["battery-level-40-charging-symbolic", "battery-symbolic"]),
-            30 => resolve(&["battery-level-30-charging-symbolic", "battery-symbolic"]),
-            20 => resolve(&["battery-level-20-charging-symbolic", "battery-symbolic"]),
-            10 => resolve(&["battery-level-10-charging-symbolic", "battery-symbolic"]),
-            _ => resolve(&["battery-level-0-charging-symbolic", "battery-symbolic"]),
+            90 => resolve(&[
+                "cosmic-applet-battery-level-90-charging-symbolic",
+                "battery-level-90-charging-symbolic",
+                "battery-symbolic",
+            ]),
+            80 => resolve(&[
+                "cosmic-applet-battery-level-80-charging-symbolic",
+                "battery-level-80-charging-symbolic",
+                "battery-symbolic",
+            ]),
+            65 => resolve(&[
+                "cosmic-applet-battery-level-65-charging-symbolic",
+                "battery-level-60-charging-symbolic",
+                "battery-symbolic",
+            ]),
+            50 => resolve(&[
+                "cosmic-applet-battery-level-50-charging-symbolic",
+                "battery-level-50-charging-symbolic",
+                "battery-symbolic",
+            ]),
+            35 => resolve(&[
+                "cosmic-applet-battery-level-35-charging-symbolic",
+                "battery-level-30-charging-symbolic",
+                "battery-symbolic",
+            ]),
+            20 => resolve(&[
+                "cosmic-applet-battery-level-20-charging-symbolic",
+                "battery-level-20-charging-symbolic",
+                "battery-symbolic",
+            ]),
+            10 => resolve(&[
+                "cosmic-applet-battery-level-10-charging-symbolic",
+                "battery-level-10-charging-symbolic",
+                "battery-symbolic",
+            ]),
+            5 => resolve(&[
+                "cosmic-applet-battery-level-5-charging-symbolic",
+                "battery-level-10-charging-symbolic",
+                "battery-symbolic",
+            ]),
+            _ => resolve(&[
+                "cosmic-applet-battery-level-0-charging-symbolic",
+                "battery-level-0-charging-symbolic",
+                "battery-symbolic",
+            ]),
         };
     }
 
@@ -103,6 +147,7 @@ pub fn battery(percent: Option<f64>, charging: bool) -> &'static str {
     // level progression for — it should not look like just another step down.
     if percent <= CRITICAL_PERCENT {
         return resolve(&[
+            "cosmic-applet-battery-level-0-symbolic",
             "battery-level-0-symbolic",
             "battery-caution-symbolic",
             "battery-empty-symbolic",
@@ -112,52 +157,62 @@ pub fn battery(percent: Option<f64>, charging: bool) -> &'static str {
 
     match level {
         100 => resolve(&[
+            "cosmic-applet-battery-level-100-symbolic",
             "battery-level-100-symbolic",
             "battery-full-symbolic",
             "battery-symbolic",
         ]),
         90 => resolve(&[
+            "cosmic-applet-battery-level-90-symbolic",
             "battery-level-90-symbolic",
             "battery-good-symbolic",
             "battery-symbolic",
         ]),
         80 => resolve(&[
+            "cosmic-applet-battery-level-80-symbolic",
             "battery-level-80-symbolic",
             "battery-good-symbolic",
             "battery-symbolic",
         ]),
-        70 => resolve(&[
-            "battery-level-70-symbolic",
-            "battery-good-symbolic",
-            "battery-symbolic",
-        ]),
-        60 => resolve(&[
+        65 => resolve(&[
+            "cosmic-applet-battery-level-65-symbolic",
             "battery-level-60-symbolic",
             "battery-good-symbolic",
             "battery-symbolic",
         ]),
         50 => resolve(&[
+            "cosmic-applet-battery-level-50-symbolic",
             "battery-level-50-symbolic",
             "battery-good-symbolic",
             "battery-symbolic",
         ]),
-        40 => resolve(&[
-            "battery-level-40-symbolic",
-            "battery-low-symbolic",
-            "battery-symbolic",
-        ]),
-        30 => resolve(&[
+        35 => resolve(&[
+            "cosmic-applet-battery-level-35-symbolic",
             "battery-level-30-symbolic",
             "battery-low-symbolic",
             "battery-symbolic",
         ]),
         20 => resolve(&[
+            "cosmic-applet-battery-level-20-symbolic",
             "battery-level-20-symbolic",
             "battery-low-symbolic",
             "battery-symbolic",
         ]),
-        _ => resolve(&[
+        10 => resolve(&[
+            "cosmic-applet-battery-level-10-symbolic",
             "battery-level-10-symbolic",
+            "battery-caution-symbolic",
+            "battery-symbolic",
+        ]),
+        5 => resolve(&[
+            "cosmic-applet-battery-level-5-symbolic",
+            "battery-level-10-symbolic",
+            "battery-caution-symbolic",
+            "battery-symbolic",
+        ]),
+        _ => resolve(&[
+            "cosmic-applet-battery-level-0-symbolic",
+            "battery-level-0-symbolic",
             "battery-caution-symbolic",
             "battery-symbolic",
         ]),
@@ -167,10 +222,25 @@ pub fn battery(percent: Option<f64>, charging: bool) -> &'static str {
 /// At or below this, and not charging, the battery icon shows caution.
 const CRITICAL_PERCENT: f64 = 10.0;
 
-/// Round to the nearest ten, which is how the `battery-level-N` family steps.
+/// The charge levels COSMIC's battery icons are drawn at.
+///
+/// Not a round decade series — COSMIC ships 35 and 65 but no 30, 40, 60 or 70,
+/// so rounding to the nearest ten produces names that do not exist.
+const COSMIC_LEVELS: [u32; 10] = [0, 5, 10, 20, 35, 50, 65, 80, 90, 100];
+
+/// The largest level at or below `percent`.
+///
+/// Rounds **down**, not to nearest. A battery at 19% must not draw the icon for
+/// 20: overstating a nearly-flat battery is the one error here with a real
+/// consequence, and the cost of understating is that a full battery reads as
+/// full only at exactly 100%.
 fn bucket(percent: f64) -> u32 {
     let clamped = percent.clamp(0.0, 100.0);
-    ((clamped / 10.0).round() as u32) * 10
+    COSMIC_LEVELS
+        .into_iter()
+        .rev()
+        .find(|level| f64::from(*level) <= clamped)
+        .unwrap_or(0)
 }
 
 /// Bluetooth, by adapter power and whether anything is connected.
@@ -677,11 +747,14 @@ mod tests {
     // it here would make the suite depend on the machine's installed themes.
 
     #[test]
-    fn battery_levels_round_to_the_nearest_ten() {
+    fn battery_levels_step_down_through_cosmics_scale() {
+        // Not a decade scale, and not nearest-match: see `bucket`.
         assert_eq!(bucket(0.0), 0);
         assert_eq!(bucket(4.0), 0);
-        assert_eq!(bucket(5.0), 10);
-        assert_eq!(bucket(47.0), 50);
+        assert_eq!(bucket(5.0), 5);
+        assert_eq!(bucket(9.0), 5);
+        assert_eq!(bucket(47.0), 35);
+        assert_eq!(bucket(65.0), 65);
         assert_eq!(bucket(94.0), 90);
         assert_eq!(bucket(100.0), 100);
     }
@@ -692,6 +765,36 @@ mod tests {
         // `battery-level-130-symbolic`, which no theme has.
         assert_eq!(bucket(-20.0), 0);
         assert_eq!(bucket(250.0), 100);
+    }
+
+    #[test]
+    fn battery_buckets_are_only_levels_cosmic_actually_ships() {
+        // COSMIC ships 35 and 65 but no 30, 40, 60 or 70. Rounding to the
+        // nearest ten — which is what this did before — names files that do not
+        // exist, and the icon silently falls back to the generic family, which
+        // is the portrait battery this change exists to stop drawing.
+        for percent in 0u32..=100 {
+            let level = bucket(f64::from(percent));
+            assert!(
+                COSMIC_LEVELS.contains(&level),
+                "{percent}% produced level {level}, which COSMIC does not ship"
+            );
+        }
+    }
+
+    #[test]
+    fn a_battery_icon_never_overstates_the_charge() {
+        // Rounding down is the whole point: 19% must not draw the 20% icon.
+        // Understating is harmless; telling someone their nearly-flat battery
+        // has more in it than it does is not.
+        for percent in 0u32..=100 {
+            let level = bucket(f64::from(percent));
+            assert!(percent >= level, "{percent}% drew the icon for {level}%");
+        }
+        assert_eq!(bucket(19.0), 10);
+        assert_eq!(bucket(20.0), 20);
+        assert_eq!(bucket(99.9), 90);
+        assert_eq!(bucket(100.0), 100);
     }
 
     #[test]

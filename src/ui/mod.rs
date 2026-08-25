@@ -131,6 +131,15 @@ impl<'a, Msg: Clone + 'static> Tile<'a, Msg> {
         self
     }
 
+    /// Set the press action, or leave the tile inert.
+    ///
+    /// For controls that exist but cannot be acted on right now — Game Mode
+    /// held by a running game, Keep Awake held by another program.
+    pub fn on_press_maybe(mut self, msg: Option<Msg>) -> Self {
+        self.on_press = msg;
+        self
+    }
+
     pub fn view(self, spacing: Spacing) -> Element<'a, Msg> {
         // `Low` never shows an on state on the grid at all. Selection lives
         // inside the drill-down pages instead, which is how Battery has always

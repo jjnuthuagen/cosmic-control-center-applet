@@ -109,6 +109,7 @@ vpn-add-in-settings = Add or edit VPN connections in Settings.
 # -- Other toggles ------------------------------------------------------------
 do-not-disturb = Do Not Disturb
 keep-awake = Keep Awake
+keep-awake-held = Held by { $who }
 charge-limit = Limit charging
 charge-limit-detail = Stop charging before full to reduce battery wear.
 
@@ -118,6 +119,8 @@ close = Close
 
 settings-controls = Controls
 settings-controls-detail = Choose which controls appear in the popup. A control switched off here is never started and never connects to anything. Controls also hide themselves when the hardware or service they need is missing, so switching one on does not guarantee a tile.
+
+settings-custom-detail = Tiles you added yourself, from the [[custom]] entries in config.toml.
 
 settings-style = Tile style
 settings-style-detail = How strongly a tile shows that its control is on.

@@ -33,6 +33,19 @@ pub struct Tile {
     /// Optional second line, for whatever the name does not make obvious.
     #[serde(default)]
     pub detail: Option<String>,
+    /// Whether the tile is drawn.
+    ///
+    /// Defaults to true, so a config written before this field existed keeps
+    /// showing its tiles. It exists because the Settings window had no way to
+    /// switch a custom tile off — the built-in controls each had a toggle and
+    /// these did not, which made a tile you had added yourself the one thing in
+    /// the popup you could only remove by editing the file by hand.
+    #[serde(default = "enabled_by_default")]
+    pub enabled: bool,
+}
+
+fn enabled_by_default() -> bool {
+    true
 }
 
 fn default_icon() -> String {
@@ -73,7 +86,7 @@ impl Tile {
     }
 }
 
-/// Drop entries that cannot run, warning about each.
+/// The tiles that should be drawn: switched on, and able to run.
 ///
 /// Filtering at load rather than at draw means a broken entry is reported once
 /// at startup instead of being a tile that quietly does nothing forever.
@@ -81,12 +94,11 @@ pub fn usable(tiles: &[Tile]) -> Vec<Tile> {
     tiles
         .iter()
         .filter(|tile| {
-            if tile.is_runnable() {
-                true
-            } else {
+            if !tile.is_runnable() {
                 tracing::warn!("ignoring custom tile `{}`: its command is empty", tile.name);
-                false
+                return false;
             }
+            tile.enabled
         })
         .cloned()
         .collect()
@@ -106,8 +118,15 @@ pub fn probe(tiles: &[Tile]) -> Result<String, String> {
         .collect();
 
     let mut summary = format!("{} tile(s)", usable.len());
-    if usable.len() != tiles.len() {
-        summary.push_str(&format!(", {} ignored", tiles.len() - usable.len()));
+    // Switched off and broken are different answers to "why is my tile
+    // missing?", and this report exists to tell them apart.
+    let off = tiles.iter().filter(|tile| !tile.enabled).count();
+    if off > 0 {
+        summary.push_str(&format!(", {off} switched off"));
+    }
+    let broken = tiles.len() - usable.len() - off;
+    if broken > 0 {
+        summary.push_str(&format!(", {broken} ignored"));
     }
     if !missing.is_empty() {
         // Worth saying: the tile will draw and then fail on press, which is
@@ -141,6 +160,7 @@ mod tests {
             icon: default_icon(),
             command: command.into_iter().map(str::to_string).collect(),
             detail: None,
+            enabled: true,
         }
     }
 
@@ -207,6 +227,25 @@ mod tests {
         let encoded = toml::to_string_pretty(&original).unwrap();
         let decoded: Tile = toml::from_str(&encoded).unwrap();
         assert_eq!(original, decoded);
+    }
+
+    #[test]
+    fn a_tile_is_shown_unless_it_is_switched_off() {
+        let mut tiles = vec![tile("On", vec!["true"]), tile("Off", vec!["true"])];
+        tiles[1].enabled = false;
+
+        let shown = usable(&tiles);
+        assert_eq!(shown.len(), 1);
+        assert_eq!(shown[0].name, "On");
+    }
+
+    #[test]
+    fn a_config_written_before_the_switch_existed_still_shows_its_tiles() {
+        // Anyone whose config.toml predates `enabled` must not silently lose
+        // every custom tile on upgrade.
+        let decoded: Tile = toml::from_str("name = \"Thing\"\ncommand = [\"true\"]\n").unwrap();
+        assert!(decoded.enabled);
+        assert_eq!(usable(&[decoded]).len(), 1);
     }
 
     #[test]

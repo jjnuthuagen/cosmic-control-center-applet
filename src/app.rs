@@ -391,10 +391,12 @@ impl App {
             );
         }
         if self.show_keep_awake() {
-            let state = if self.caffeine.is_on() {
-                fl!("on")
-            } else {
-                fl!("off")
+            // Name whoever is holding it, rather than a bare "On" that leaves
+            // the user wondering why the screen will not sleep.
+            let state = match (&self.caffeine.held_by, self.caffeine.is_on()) {
+                (Some(who), _) => fl!("keep-awake-held", who = who.clone()),
+                (None, true) => fl!("on"),
+                (None, false) => fl!("off"),
             };
             tiles.push(
                 Tile::new(
@@ -404,7 +406,14 @@ impl App {
                 )
                 .active(self.caffeine.is_on())
                 .style(self.config.appearance.style)
-                .on_press(Message::ToggleKeepAwake)
+                // No press while another program holds the lock — we cannot
+                // release someone else's inhibitor, so the button would do
+                // nothing. Same rule as Game Mode.
+                .on_press_maybe(
+                    self.caffeine
+                        .can_toggle()
+                        .then_some(Message::ToggleKeepAwake),
+                )
                 .view(spacing),
             );
         }
@@ -817,7 +826,12 @@ impl App {
         // selected, so its subtitle says so rather than letting the position
         // imply mutual exclusivity.
         if self.config.modules.gamemode && self.gamemode.availability.is_shown() {
-            content = content.push(list_row(
+            // A switch, not a selectable row. The profiles above it are a
+            // pick-one list where selecting one deselects another; Game Mode
+            // stacks with whichever is chosen, so it needs the affordance that
+            // says "independent on/off" rather than the one that says "one of
+            // these".
+            content = content.push(toggle_row(
                 icons::game_mode(),
                 fl!("game-mode"),
                 Some(if self.gamemode.can_toggle() {
