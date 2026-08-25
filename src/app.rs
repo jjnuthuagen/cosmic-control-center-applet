@@ -303,6 +303,11 @@ impl App {
         }
     }
 
+    /// The shape a tile draws at: the user's override, else its default.
+    fn shape_of(&self, key: TileKey) -> TileShape {
+        key.shape_with(&self.config.appearance.shapes)
+    }
+
     /// The Wide Connectivity tile, with one row per available module.
     fn connectivity_tile(&self, spacing: Spacing) -> Element<'_, Message> {
         let mut rows = Vec::with_capacity(3);
@@ -386,6 +391,7 @@ impl App {
                     .active(self.wifi.enabled && !self.wifi.airplane_mode)
                     .on_press(Message::Navigate(Page::Wifi))
                     .style(self.config.appearance.style)
+                    .compact(self.shape_of(TileKey::Wifi) == TileShape::Half)
                     .view(spacing),
             ));
         }
@@ -400,6 +406,7 @@ impl App {
                 .active(self.bluetooth.powered)
                 .on_press(Message::Navigate(Page::Bluetooth))
                 .style(self.config.appearance.style)
+                .compact(self.shape_of(TileKey::Bluetooth) == TileShape::Half)
                 .view(spacing),
             ));
         }
@@ -415,7 +422,9 @@ impl App {
             }
             keyed.push((
                 TileKey::Battery,
-                tile.style(self.config.appearance.style).view(spacing),
+                tile.style(self.config.appearance.style)
+                    .compact(self.shape_of(TileKey::Battery) == TileShape::Half)
+                    .view(spacing),
             ));
         }
         if self.show_dns() {
@@ -428,6 +437,7 @@ impl App {
                 Tile::new(icons::dns(), fl!("dns"), state)
                     .on_press(Message::Navigate(Page::Dns))
                     .style(self.config.appearance.style)
+                    .compact(self.shape_of(TileKey::Dns) == TileShape::Half)
                     .view(spacing),
             ));
         }
@@ -443,6 +453,7 @@ impl App {
                     .active(self.system.dark)
                     .on_press(Message::ToggleDark)
                     .style(self.config.appearance.style)
+                    .compact(self.shape_of(TileKey::DarkMode) == TileShape::Half)
                     .view(spacing),
             ));
         }
@@ -458,6 +469,7 @@ impl App {
                     .active(self.tiling.tiled)
                     .on_press(Message::ToggleTiling)
                     .style(self.config.appearance.style)
+                    .compact(self.shape_of(TileKey::Tiling) == TileShape::Half)
                     .view(spacing),
             ));
         }
@@ -477,6 +489,7 @@ impl App {
                 .active(self.vpn.active_name().is_some())
                 .style(self.config.appearance.style)
                 .on_press(Message::Navigate(Page::Vpn))
+                .compact(self.shape_of(TileKey::Vpn) == TileShape::Half)
                 .view(spacing),
             ));
         }
@@ -491,6 +504,7 @@ impl App {
                 .active(self.keyboard.is_on())
                 .style(self.config.appearance.style)
                 .on_press(Message::CycleKeyboard)
+                .compact(self.shape_of(TileKey::KeyboardBacklight) == TileShape::Half)
                 .view(spacing),
             ));
         }
@@ -510,6 +524,7 @@ impl App {
                 .active(self.system.do_not_disturb)
                 .style(self.config.appearance.style)
                 .on_press(Message::ToggleDoNotDisturb)
+                .compact(self.shape_of(TileKey::DoNotDisturb) == TileShape::Half)
                 .view(spacing),
             ));
         }
@@ -538,6 +553,7 @@ impl App {
                         .can_toggle()
                         .then_some(Message::ToggleKeepAwake),
                 )
+                .compact(self.shape_of(TileKey::KeepAwake) == TileShape::Half)
                 .view(spacing),
             ));
         }
@@ -632,7 +648,7 @@ impl App {
         for key in order {
             if let Some(i) = keyed.iter().position(|(k, _)| *k == key) {
                 let (key, element) = keyed.swap_remove(i);
-                tiles.push((element, key.default_shape()));
+                tiles.push((element, self.shape_of(key)));
             }
         }
         // Anything `keyed` still holds is a key not in DEFAULT_ORDER — that

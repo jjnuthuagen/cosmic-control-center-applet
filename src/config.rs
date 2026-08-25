@@ -68,6 +68,13 @@ pub struct Appearance {
     /// rejected at parse time by `deny_unknown_fields` on the enum.
     #[serde(default)]
     pub order: Vec<crate::tile_layout::TileKey>,
+    /// Per-tile shape overrides: `shapes = { battery = "half", dns = "half" }`.
+    ///
+    /// Absent tiles use their default shape. `half` is icon-only, four to a
+    /// row; the others are the shapes each tile already had.
+    #[serde(default)]
+    pub shapes:
+        std::collections::HashMap<crate::tile_layout::TileKey, crate::tile_layout::TileShape>,
 }
 
 /// How strongly a tile signals that its control is on.
@@ -347,6 +354,34 @@ mod tests {
         // before this field existed — parses to the empty list.
         let older: Config = toml::from_str("[appearance]\nstyle = \"high\"\n").unwrap();
         assert!(older.appearance.order.is_empty());
+    }
+
+    #[test]
+    fn a_shape_override_round_trips_and_absent_means_default() {
+        use crate::tile_layout::{TileKey, TileShape};
+        let mut shapes = std::collections::HashMap::new();
+        shapes.insert(TileKey::Battery, TileShape::Half);
+        let with = Config {
+            appearance: Appearance {
+                shapes,
+                ..Appearance::default()
+            },
+            ..Config::default()
+        };
+        let encoded = toml::to_string_pretty(&with).unwrap();
+        let decoded: Config = toml::from_str(&encoded).unwrap();
+        assert_eq!(
+            decoded.appearance.shapes.get(&TileKey::Battery),
+            Some(&TileShape::Half)
+        );
+        assert_eq!(
+            TileKey::Battery.shape_with(&decoded.appearance.shapes),
+            TileShape::Half
+        );
+        assert_eq!(
+            TileKey::Dns.shape_with(&decoded.appearance.shapes),
+            TileShape::Small
+        );
     }
 
     #[test]

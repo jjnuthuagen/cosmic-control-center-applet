@@ -64,6 +64,24 @@ impl TileKey {
     /// with the icon on top, the level below, and the percentage at the
     /// bottom. Connectivity is Wide because three rows of icon + label + switch
     /// do not fit legibly in a single-column tile. Everything else is Small.
+    /// The shape to draw: the user's override for this tile, else the default.
+    ///
+    /// An override to `Half` is honoured only for tiles whose default is
+    /// `Small`. A Half is icon-only, and the sliders and the Connectivity
+    /// group have no icon-only form — a half-width slider is not a slider.
+    /// Ignoring the override beats drawing something broken.
+    pub fn shape_with(
+        self,
+        overrides: &std::collections::HashMap<TileKey, TileShape>,
+    ) -> TileShape {
+        let default = self.default_shape();
+        match overrides.get(&self).copied() {
+            Some(TileShape::Half) if default != TileShape::Small => default,
+            Some(shape) => shape,
+            None => default,
+        }
+    }
+
     pub fn default_shape(self) -> TileShape {
         match self {
             // A narrow column of stacked switches, the way the macOS Control
@@ -88,26 +106,34 @@ impl TileKey {
 /// `Tall × Wide` (a 2×2 block) is not offered on purpose: nothing in the
 /// current tile set warrants it, and adding it would double the number of
 /// packing cases the tests have to cover.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Deserialize, Serialize)]
+#[serde(rename_all = "lowercase")]
 pub enum TileShape {
+    /// Half a Small: icon only, four to a row.
+    Half,
     Small,
     Wide,
     Tall,
 }
 
+/// The grid's width in sub-columns. A Small is two of them, so the grid is
+/// still "two tiles wide" for every shape that existed before Half did.
+pub const GRID_COLUMNS: u16 = 4;
+
 impl TileShape {
-    /// Cells occupied on the horizontal axis (out of two).
+    /// Sub-columns occupied (out of [`GRID_COLUMNS`]).
     pub fn columns(self) -> usize {
         match self {
-            TileShape::Small | TileShape::Tall => 1,
-            TileShape::Wide => 2,
+            TileShape::Half => 1,
+            TileShape::Small | TileShape::Tall => 2,
+            TileShape::Wide => 4,
         }
     }
 
-    /// Cells occupied on the vertical axis.
+    /// Rows occupied.
     pub fn rows(self) -> usize {
         match self {
-            TileShape::Small | TileShape::Wide => 1,
+            TileShape::Half | TileShape::Small | TileShape::Wide => 1,
             TileShape::Tall => 2,
         }
     }
@@ -232,15 +258,20 @@ mod tests {
     }
 
     #[test]
-    fn tall_tiles_span_two_rows_and_one_column() {
-        assert_eq!(TileShape::Tall.rows(), 2);
-        assert_eq!(TileShape::Tall.columns(), 1);
-    }
+    fn shapes_measure_in_sub_columns_where_a_small_is_two() {
+        // The grid is four sub-columns so that a Half can be exactly half a
+        // Small. Every other shape's width doubled with that change; the
+        // heights did not.
+        assert_eq!(TileShape::Half.columns(), 1);
+        assert_eq!(TileShape::Small.columns(), 2);
+        assert_eq!(TileShape::Tall.columns(), 2);
+        assert_eq!(TileShape::Wide.columns(), 4);
+        assert_eq!(TileShape::Wide.columns(), GRID_COLUMNS as usize);
 
-    #[test]
-    fn wide_tiles_span_two_columns_and_one_row() {
-        assert_eq!(TileShape::Wide.columns(), 2);
-        assert_eq!(TileShape::Wide.rows(), 1);
+        assert_eq!(TileShape::Tall.rows(), 2);
+        for flat in [TileShape::Half, TileShape::Small, TileShape::Wide] {
+            assert_eq!(flat.rows(), 1, "{flat:?}");
+        }
     }
 
     #[test]
@@ -286,6 +317,18 @@ mod tests {
                 "{key:?} has no slot in DEFAULT_ORDER, so it can never be drawn"
             );
         }
+    }
+
+    #[test]
+    fn half_is_only_honoured_where_the_default_is_small() {
+        let mut o = std::collections::HashMap::new();
+        o.insert(TileKey::Battery, TileShape::Half);
+        o.insert(TileKey::Volume, TileShape::Half);
+        o.insert(TileKey::Connectivity, TileShape::Half);
+        assert_eq!(TileKey::Battery.shape_with(&o), TileShape::Half);
+        // A half-width slider is not a slider; the override is ignored.
+        assert_eq!(TileKey::Volume.shape_with(&o), TileShape::Wide);
+        assert_eq!(TileKey::Connectivity.shape_with(&o), TileShape::Tall);
     }
 
     #[test]
@@ -446,16 +489,7 @@ pub fn pack(shapes: &[TileShape], columns: u16) -> Pack {
 #[cfg(test)]
 mod pack_tests {
     use super::*;
-
-    fn small() -> TileShape {
-        TileShape::Small
-    }
-    fn wide() -> TileShape {
-        TileShape::Wide
-    }
-    fn tall() -> TileShape {
-        TileShape::Tall
-    }
+    use TileShape::{Half, Small, Tall, Wide};
 
     fn assert_no_overlaps(pack: &Pack) {
         let mut seen = std::collections::HashSet::new();
@@ -469,249 +503,108 @@ mod pack_tests {
         }
     }
 
-    #[test]
-    fn a_pair_of_smalls_fills_one_row() {
-        let pack = pack(&[small(), small()], 2);
-        assert_eq!(pack.tiles.len(), 2);
-        assert_eq!(
-            pack.tiles[0],
-            Placement {
-                column: 1,
-                row: 1,
-                width: 1,
-                height: 1
-            }
-        );
-        assert_eq!(
-            pack.tiles[1],
-            Placement {
-                column: 2,
-                row: 1,
-                width: 1,
-                height: 1
-            }
-        );
-        assert!(pack.ghosts.is_empty());
-        assert_eq!(pack.rows, 1);
+    fn at(column: u16, row: u16, width: u16, height: u16) -> Placement {
+        Placement {
+            column,
+            row,
+            width,
+            height,
+        }
     }
 
     #[test]
-    fn an_odd_small_gets_a_ghost_next_to_it() {
-        // The whole point of ghosts: keep the last row square rather than
-        // leaving a single tile floating on the left.
-        let pack = pack(&[small()], 2);
+    fn a_pair_of_smalls_fills_one_row() {
+        let p = pack(&[Small, Small], GRID_COLUMNS);
+        assert_eq!(p.tiles, vec![at(1, 1, 2, 1), at(3, 1, 2, 1)]);
+        assert!(p.ghosts.is_empty());
+        assert_eq!(p.rows, 1);
+    }
+
+    #[test]
+    fn four_halfs_fill_one_row_and_a_fifth_wraps() {
+        let p = pack(&[Half; 5], GRID_COLUMNS);
+        assert_eq!(p.tiles[4], at(1, 2, 1, 1));
+        assert_eq!(p.ghosts.len(), 3);
+        assert_eq!(p.rows, 2);
+    }
+
+    #[test]
+    fn a_half_beside_a_small_beside_a_half_is_one_row() {
+        let p = pack(&[Half, Small, Half], GRID_COLUMNS);
         assert_eq!(
-            pack.tiles[0],
-            Placement {
-                column: 1,
-                row: 1,
-                width: 1,
-                height: 1
-            }
+            p.tiles,
+            vec![at(1, 1, 1, 1), at(2, 1, 2, 1), at(4, 1, 1, 1)]
         );
-        assert_eq!(
-            pack.ghosts,
-            vec![Placement {
-                column: 2,
-                row: 1,
-                width: 1,
-                height: 1
-            }]
-        );
+        assert!(p.ghosts.is_empty());
+    }
+
+    #[test]
+    fn an_odd_small_gets_two_half_ghosts_next_to_it() {
+        // A hole the size of a Small is two Half slots now.
+        let p = pack(&[Small], GRID_COLUMNS);
+        assert_eq!(p.ghosts, vec![at(3, 1, 1, 1), at(4, 1, 1, 1)]);
     }
 
     #[test]
     fn a_wide_takes_a_whole_row_by_itself() {
-        let pack = pack(&[wide()], 2);
-        assert_eq!(
-            pack.tiles[0],
-            Placement {
-                column: 1,
-                row: 1,
-                width: 2,
-                height: 1
-            }
-        );
-        assert!(
-            pack.ghosts.is_empty(),
-            "a Wide fills the row; no ghost needed"
-        );
+        let p = pack(&[Wide], GRID_COLUMNS);
+        assert_eq!(p.tiles[0], at(1, 1, 4, 1));
+        assert!(p.ghosts.is_empty());
     }
 
     #[test]
-    fn a_wide_after_a_lone_small_starts_a_new_row_and_leaves_a_ghost() {
-        // The user's order wins over compactness: a Small first, then a Wide
-        // means Small alone up top with a ghost to its right, and the Wide
-        // below it — not Small swapped with Wide.
-        let pack = pack(&[small(), wide()], 2);
-        assert_eq!(
-            pack.tiles[0],
-            Placement {
-                column: 1,
-                row: 1,
-                width: 1,
-                height: 1
-            }
-        );
-        assert_eq!(
-            pack.tiles[1],
-            Placement {
-                column: 1,
-                row: 2,
-                width: 2,
-                height: 1
-            }
-        );
-        assert_eq!(
-            pack.ghosts,
-            vec![Placement {
-                column: 2,
-                row: 1,
-                width: 1,
-                height: 1
-            }]
-        );
+    fn a_wide_after_a_lone_small_starts_a_new_row_and_leaves_ghosts() {
+        // The user's order wins over compactness.
+        let p = pack(&[Small, Wide], GRID_COLUMNS);
+        assert_eq!(p.tiles, vec![at(1, 1, 2, 1), at(1, 2, 4, 1)]);
+        assert_eq!(p.ghosts.len(), 2);
     }
 
     #[test]
-    fn a_tall_reserves_its_column_across_two_rows() {
-        // A Tall in column 1 means column 2 of both rows is free for smalls.
-        // Two Smalls after it should slot in there.
-        let pack = pack(&[tall(), small(), small()], 2);
+    fn a_tall_reserves_its_columns_across_two_rows() {
+        let p = pack(&[Tall, Small, Small], GRID_COLUMNS);
         assert_eq!(
-            pack.tiles[0],
-            Placement {
-                column: 1,
-                row: 1,
-                width: 1,
-                height: 2
-            }
+            p.tiles,
+            vec![at(1, 1, 2, 2), at(3, 1, 2, 1), at(3, 2, 2, 1)]
         );
-        assert_eq!(
-            pack.tiles[1],
-            Placement {
-                column: 2,
-                row: 1,
-                width: 1,
-                height: 1
-            }
-        );
-        assert_eq!(
-            pack.tiles[2],
-            Placement {
-                column: 2,
-                row: 2,
-                width: 1,
-                height: 1
-            }
-        );
-        assert!(pack.ghosts.is_empty());
-        assert_eq!(pack.rows, 2);
+        assert!(p.ghosts.is_empty());
+        assert_eq!(p.rows, 2);
     }
 
     #[test]
-    fn a_wide_cannot_slip_past_a_tall_reserving_a_column() {
-        // Tall in col 1, rows 1-2. Wide needs both cols so it cannot sit at
-        // row 1 or row 2 — it has to wait for row 3.
-        let pack = pack(&[tall(), wide()], 2);
-        assert_eq!(
-            pack.tiles[0],
-            Placement {
-                column: 1,
-                row: 1,
-                width: 1,
-                height: 2
-            }
-        );
-        assert_eq!(
-            pack.tiles[1],
-            Placement {
-                column: 1,
-                row: 3,
-                width: 2,
-                height: 1
-            }
-        );
-        // Two ghosts, one per row, on the free column-2 of rows 1 and 2.
-        assert_eq!(pack.ghosts.len(), 2);
+    fn a_wide_cannot_slip_past_a_tall_reserving_columns() {
+        let p = pack(&[Tall, Wide], GRID_COLUMNS);
+        assert_eq!(p.tiles[1], at(1, 3, 4, 1));
+        assert_eq!(p.ghosts.len(), 4);
     }
 
     #[test]
     fn two_talls_sit_side_by_side_not_stacked() {
-        // Left tall, right tall, done in two rows. Not four rows stacked.
-        let pack = pack(&[tall(), tall()], 2);
-        assert_eq!(
-            pack.tiles[0],
-            Placement {
-                column: 1,
-                row: 1,
-                width: 1,
-                height: 2
-            }
-        );
-        assert_eq!(
-            pack.tiles[1],
-            Placement {
-                column: 2,
-                row: 1,
-                width: 1,
-                height: 2
-            }
-        );
-        assert_eq!(pack.rows, 2);
-        assert!(pack.ghosts.is_empty());
+        let p = pack(&[Tall, Tall], GRID_COLUMNS);
+        assert_eq!(p.tiles, vec![at(1, 1, 2, 2), at(3, 1, 2, 2)]);
+        assert_eq!(p.rows, 2);
+        assert!(p.ghosts.is_empty());
     }
 
     #[test]
     fn placements_never_overlap_across_any_of_the_mixed_cases() {
         for shapes in [
-            vec![small(), small(), small(), small()],
-            vec![wide(), wide(), small()],
-            vec![tall(), small(), small(), small(), tall()],
-            vec![small(), tall(), wide(), small(), tall(), small()],
-            vec![wide(), small(), tall(), small(), wide(), tall(), small()],
+            vec![Small, Small, Small, Small],
+            vec![Wide, Wide, Small],
+            vec![Tall, Small, Small, Small, Tall],
+            vec![Small, Tall, Wide, Small, Tall, Small],
+            vec![Wide, Small, Tall, Small, Wide, Tall, Small],
+            vec![Half, Tall, Half, Half, Small, Half, Wide, Half],
         ] {
-            assert_no_overlaps(&pack(&shapes, 2));
+            assert_no_overlaps(&pack(&shapes, GRID_COLUMNS));
         }
     }
 
     #[test]
     fn a_shape_that_cannot_fit_the_grid_at_all_is_skipped() {
-        // A Wide in a one-column grid has nowhere to go. Better to drop it
-        // than to panic — the popup is still useful without that tile.
-        let pack = pack(&[small(), wide(), small()], 1);
-        // Only the two Smalls placed.
-        assert_eq!(pack.tiles.len(), 2);
-        assert!(pack.tiles.iter().all(|p| p.width == 1 && p.height == 1));
+        let p = pack(&[Half, Wide, Half], 2);
+        assert_eq!(p.tiles.len(), 2);
     }
-}
-
-/// One horizontal slice of the grid, ready to be drawn without a grid
-/// widget.
-///
-/// libcosmic's `Grid` is taffy underneath, and taffy attributes a spanning
-/// item's width to the first track it spans rather than splitting it — so a
-/// Wide tile made column one 512px and column two nothing. Rather than fight
-/// that, the placements are cut into bands that plain rows and columns can
-/// express exactly:
-///
-/// * A `Flat` band is one grid row: a Wide on its own, or two one-cell
-///   entries side by side (Small, ghost, or a Tall's *upper* half — see
-///   below).
-/// * A `Tall` band is two grid rows that a Tall tile straddles: two columns
-///   side by side, each holding whatever sits in that column across both
-///   rows. A Tall is one entry of double height; two Smalls (or a Small and
-///   a ghost) stack to the same height.
-///
-/// The packer guarantees a Wide never lands in a row a Tall straddles (it
-/// waits for a clear row), which is what makes this split total.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum Band {
-    /// Entries in column order. Each is `(index, is_ghost)`, where `index`
-    /// points into the original tile list for real tiles.
-    Flat(Vec<Entry>),
-    /// Left column entries (top to bottom), right column entries.
-    Tall(Vec<Entry>, Vec<Entry>),
 }
 
 /// A cell's occupant.
@@ -722,57 +615,109 @@ pub enum Entry {
     Ghost,
 }
 
+/// One horizontal slice of the grid, ready to be drawn with rows and
+/// columns and no grid widget.
+///
+/// libcosmic's `Grid` is taffy underneath, and taffy attributes a spanning
+/// item's width to the first track it spans rather than splitting it — so a
+/// Wide tile made column one 512px and column two nothing. Rather than fight
+/// that, placements are cut into nested rows and columns that plain widgets
+/// express exactly:
+///
+/// * The grid is cut into **bands** at every row boundary no tile straddles.
+/// * Each band is cut into **strips** at every sub-column boundary no tile in
+///   that band straddles. A strip is drawn as a column of rows.
+/// * Each strip-row is the entries sitting in that strip on that grid row,
+///   with their widths.
+///
+/// A Tall beside two Halfs over a Small therefore becomes one band of two
+/// strips: `[Tall]` and `[[Half, Half], [Small]]`. Ghosts are one sub-column
+/// each, which is what a hole *is* once Half tiles exist.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Band {
+    pub strips: Vec<Strip>,
+}
+
+/// A vertical strip inside a band.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Strip {
+    /// Sub-columns this strip spans.
+    pub width: u16,
+    /// One inner vec per grid row the band covers, top to bottom. A tile
+    /// spanning two rows appears in the first and is absent from the second,
+    /// which is why the renderer must size a strip by its content rather
+    /// than assume every strip-row is one tile tall.
+    pub rows: Vec<Vec<(Entry, u16)>>,
+}
+
 /// Cut a [`Pack`] into drawable bands.
 pub fn bands(pack: &Pack) -> Vec<Band> {
-    // (row, column) → entry, plus which rows a Tall straddles.
-    let mut cell: std::collections::HashMap<(u16, u16), (Entry, Placement)> =
-        std::collections::HashMap::new();
-    let mut tall_top_rows = std::collections::HashSet::new();
+    if pack.rows == 0 {
+        return Vec::new();
+    }
+    let cols = GRID_COLUMNS;
 
+    // Everything, by top-left cell.
+    let mut at: std::collections::HashMap<(u16, u16), (Entry, Placement)> =
+        std::collections::HashMap::new();
+    let mut all: Vec<Placement> = Vec::with_capacity(pack.tiles.len() + pack.ghosts.len());
     for (i, p) in pack.tiles.iter().enumerate() {
-        cell.insert((p.row, p.column), (Entry::Tile(i), *p));
-        if p.height == 2 {
-            tall_top_rows.insert(p.row);
-        }
+        at.insert((p.row, p.column), (Entry::Tile(i), *p));
+        all.push(*p);
     }
     for p in &pack.ghosts {
-        cell.insert((p.row, p.column), (Entry::Ghost, *p));
+        at.insert((p.row, p.column), (Entry::Ghost, *p));
+        all.push(*p);
     }
 
+    // A row boundary between r and r+1 is cut unless something straddles it.
+    let straddles_row = |r: u16| all.iter().any(|p| p.row <= r && r + 1 < p.row + p.height);
+
     let mut out = Vec::new();
-    let mut row = 1u16;
-    while row <= pack.rows {
-        if tall_top_rows.contains(&row) {
-            // Two rows, two columns. Each column lists what sits in it across
-            // both rows, top to bottom; a Tall appears once (it covers both).
-            let column_entries = |col: u16| -> Vec<Entry> {
-                let mut v = Vec::with_capacity(2);
-                for r in [row, row + 1] {
-                    if let Some((entry, p)) = cell.get(&(r, col)) {
-                        // The lower row of a Tall has no cell of its own —
-                        // the Tall was inserted at its top row only.
-                        let _ = p;
-                        v.push(*entry);
+    let mut top = 1u16;
+    while top <= pack.rows {
+        let mut bottom = top;
+        while bottom < pack.rows && straddles_row(bottom) {
+            bottom += 1;
+        }
+        let in_band = |p: &Placement| p.row >= top && p.row <= bottom;
+
+        // A column boundary between c and c+1 is cut unless something in this
+        // band straddles it.
+        let straddles_col = |c: u16| {
+            all.iter()
+                .any(|p| in_band(p) && p.column <= c && c + 1 < p.column + p.width)
+        };
+
+        let mut strips = Vec::new();
+        let mut left = 1u16;
+        while left <= cols {
+            let mut right = left;
+            while right < cols && straddles_col(right) {
+                right += 1;
+            }
+            let mut rows = Vec::with_capacity((bottom - top + 1) as usize);
+            for r in top..=bottom {
+                let mut entries = Vec::new();
+                let mut c = left;
+                while c <= right {
+                    if let Some((entry, p)) = at.get(&(r, c)) {
+                        entries.push((*entry, p.width));
+                        c += p.width;
+                    } else {
+                        c += 1;
                     }
                 }
-                v
-            };
-            out.push(Band::Tall(column_entries(1), column_entries(2)));
-            row += 2;
-        } else {
-            let mut entries = Vec::with_capacity(2);
-            let mut col = 1u16;
-            while col <= 2 {
-                if let Some((entry, p)) = cell.get(&(row, col)) {
-                    entries.push(*entry);
-                    col += p.width;
-                } else {
-                    col += 1;
-                }
+                rows.push(entries);
             }
-            out.push(Band::Flat(entries));
-            row += 1;
+            strips.push(Strip {
+                width: right - left + 1,
+                rows,
+            });
+            left = right + 1;
         }
+        out.push(Band { strips });
+        top = bottom + 1;
     }
     out
 }
@@ -780,68 +725,106 @@ pub fn bands(pack: &Pack) -> Vec<Band> {
 #[cfg(test)]
 mod band_tests {
     use super::*;
+    use Entry::{Ghost, Tile as T};
+
+    fn one_strip(width: u16, rows: Vec<Vec<(Entry, u16)>>) -> Band {
+        Band {
+            strips: vec![Strip { width, rows }],
+        }
+    }
 
     #[test]
-    fn two_smalls_are_one_flat_band() {
-        let p = pack(&[TileShape::Small, TileShape::Small], 2);
+    fn two_smalls_are_one_band_of_two_strips() {
+        let p = pack(&[TileShape::Small, TileShape::Small], GRID_COLUMNS);
         assert_eq!(
             bands(&p),
-            vec![Band::Flat(vec![Entry::Tile(0), Entry::Tile(1)])]
+            vec![Band {
+                strips: vec![
+                    Strip {
+                        width: 2,
+                        rows: vec![vec![(T(0), 2)]]
+                    },
+                    Strip {
+                        width: 2,
+                        rows: vec![vec![(T(1), 2)]]
+                    },
+                ]
+            }]
         );
     }
 
     #[test]
-    fn a_lone_small_gets_a_ghost_beside_it() {
-        let p = pack(&[TileShape::Small], 2);
+    fn four_halfs_fill_one_row() {
+        let p = pack(&[TileShape::Half; 4], GRID_COLUMNS);
+        let b = bands(&p);
+        assert_eq!(b.len(), 1);
+        assert_eq!(b[0].strips.len(), 4);
+        assert!(b[0]
+            .strips
+            .iter()
+            .all(|s| s.width == 1 && s.rows == vec![vec![(s.rows[0][0].0, 1)]]));
+        assert!(p.ghosts.is_empty());
+    }
+
+    #[test]
+    fn a_lone_half_gets_three_ghosts_beside_it() {
+        let p = pack(&[TileShape::Half], GRID_COLUMNS);
+        assert_eq!(p.ghosts.len(), 3);
+        let b = bands(&p);
+        assert_eq!(b[0].strips.len(), 4);
+        assert_eq!(b[0].strips[0].rows, vec![vec![(T(0), 1)]]);
+        assert_eq!(b[0].strips[1].rows, vec![vec![(Ghost, 1)]]);
+    }
+
+    #[test]
+    fn a_wide_is_one_strip_the_whole_width() {
+        let p = pack(&[TileShape::Wide], GRID_COLUMNS);
+        assert_eq!(bands(&p), vec![one_strip(4, vec![vec![(T(0), 4)]])]);
+    }
+
+    #[test]
+    fn a_tall_beside_two_halfs_over_a_small_is_one_band_of_two_strips() {
+        // The case the strip model exists for.
+        let p = pack(
+            &[
+                TileShape::Tall,
+                TileShape::Half,
+                TileShape::Half,
+                TileShape::Small,
+            ],
+            GRID_COLUMNS,
+        );
         assert_eq!(
             bands(&p),
-            vec![Band::Flat(vec![Entry::Tile(0), Entry::Ghost])]
+            vec![Band {
+                strips: vec![
+                    Strip {
+                        width: 2,
+                        rows: vec![vec![(T(0), 2)], vec![]]
+                    },
+                    Strip {
+                        width: 2,
+                        rows: vec![vec![(T(1), 1), (T(2), 1)], vec![(T(3), 2)]],
+                    },
+                ]
+            }]
         );
     }
 
     #[test]
-    fn a_wide_is_a_flat_band_of_one() {
-        let p = pack(&[TileShape::Wide], 2);
-        assert_eq!(bands(&p), vec![Band::Flat(vec![Entry::Tile(0)])]);
-    }
-
-    #[test]
-    fn a_tall_with_two_smalls_beside_it_is_one_tall_band() {
-        // Tall in col 1 rows 1-2; Smalls fill col 2 rows 1 and 2.
-        let p = pack(&[TileShape::Tall, TileShape::Small, TileShape::Small], 2);
-        assert_eq!(
-            bands(&p),
-            vec![Band::Tall(
-                vec![Entry::Tile(0)],
-                vec![Entry::Tile(1), Entry::Tile(2)]
-            )]
-        );
-    }
-
-    #[test]
-    fn a_tall_alone_gets_two_ghosts_stacked_beside_it() {
-        let p = pack(&[TileShape::Tall], 2);
-        assert_eq!(
-            bands(&p),
-            vec![Band::Tall(
-                vec![Entry::Tile(0)],
-                vec![Entry::Ghost, Entry::Ghost]
-            )]
-        );
-    }
-
-    #[test]
-    fn two_talls_side_by_side_are_one_band() {
-        let p = pack(&[TileShape::Tall, TileShape::Tall], 2);
-        assert_eq!(
-            bands(&p),
-            vec![Band::Tall(vec![Entry::Tile(0)], vec![Entry::Tile(1)])]
-        );
+    fn a_tall_alone_gets_ghosts_in_both_rows_beside_it() {
+        let p = pack(&[TileShape::Tall], GRID_COLUMNS);
+        let b = bands(&p);
+        assert_eq!(b.len(), 1);
+        // Left strip: the Tall. Right side: two sub-column strips of ghosts.
+        assert_eq!(b[0].strips[0].rows, vec![vec![(T(0), 2)], vec![]]);
+        assert!(b[0].strips[1..]
+            .iter()
+            .all(|s| s.width == 1 && s.rows == vec![vec![(Ghost, 1)], vec![(Ghost, 1)]]));
     }
 
     #[test]
     fn a_wide_then_a_tall_band_then_a_flat_row_cut_cleanly() {
-        // Wide (row 1) / Tall + Small + Small (rows 2-3) / Small + ghost (row 4).
         let p = pack(
             &[
                 TileShape::Wide,
@@ -850,49 +833,76 @@ mod band_tests {
                 TileShape::Small,
                 TileShape::Small,
             ],
-            2,
+            GRID_COLUMNS,
         );
-        assert_eq!(
-            bands(&p),
-            vec![
-                Band::Flat(vec![Entry::Tile(0)]),
-                Band::Tall(vec![Entry::Tile(1)], vec![Entry::Tile(2), Entry::Tile(3)]),
-                Band::Flat(vec![Entry::Tile(4), Entry::Ghost]),
-            ]
-        );
+        let b = bands(&p);
+        assert_eq!(b.len(), 3, "{b:#?}");
+        assert_eq!(b[0], one_strip(4, vec![vec![(T(0), 4)]]));
+        assert_eq!(b[1].strips[0].rows, vec![vec![(T(1), 2)], vec![]]);
+        assert_eq!(b[1].strips[1].rows, vec![vec![(T(2), 2)], vec![(T(3), 2)]]);
+        assert_eq!(b[2].strips[0].rows, vec![vec![(T(4), 2)]]);
     }
 
     #[test]
     fn every_tile_appears_exactly_once_across_bands() {
         for shapes in [
             vec![TileShape::Small; 5],
+            vec![TileShape::Half; 7],
             vec![
                 TileShape::Wide,
                 TileShape::Tall,
-                TileShape::Small,
+                TileShape::Half,
                 TileShape::Wide,
             ],
             vec![
                 TileShape::Tall,
-                TileShape::Tall,
+                TileShape::Half,
                 TileShape::Tall,
                 TileShape::Small,
+                TileShape::Half,
+            ],
+            vec![
+                TileShape::Half,
+                TileShape::Tall,
+                TileShape::Half,
+                TileShape::Half,
+                TileShape::Wide,
             ],
         ] {
-            let p = pack(&shapes, 2);
+            let p = pack(&shapes, GRID_COLUMNS);
             let mut seen = vec![0usize; shapes.len()];
             for band in bands(&p) {
-                let entries: Vec<Entry> = match band {
-                    Band::Flat(e) => e,
-                    Band::Tall(l, r) => l.into_iter().chain(r).collect(),
-                };
-                for e in entries {
-                    if let Entry::Tile(i) = e {
-                        seen[i] += 1;
+                for strip in band.strips {
+                    for row in strip.rows {
+                        for (e, _) in row {
+                            if let Entry::Tile(i) = e {
+                                seen[i] += 1;
+                            }
+                        }
                     }
                 }
             }
             assert!(seen.iter().all(|&n| n == 1), "{shapes:?} → {seen:?}");
+        }
+    }
+
+    #[test]
+    fn strip_widths_always_sum_to_the_grid_width() {
+        for shapes in [
+            vec![TileShape::Half, TileShape::Small, TileShape::Half],
+            vec![
+                TileShape::Tall,
+                TileShape::Half,
+                TileShape::Half,
+                TileShape::Small,
+            ],
+            vec![TileShape::Wide, TileShape::Half],
+        ] {
+            let p = pack(&shapes, GRID_COLUMNS);
+            for band in bands(&p) {
+                let total: u16 = band.strips.iter().map(|s| s.width).sum();
+                assert_eq!(total, GRID_COLUMNS, "{shapes:?}: {band:#?}");
+            }
         }
     }
 }

@@ -30,6 +30,7 @@ Tiles come in three shapes and pack into two columns:
 
 | Shape | Footprint | Used by |
 |---|---|---|
+| Half | ½ × 1 | Icon only, four to a row — opt in per tile with `shapes = { battery = "half" }` |
 | Small | 1 × 1 | Most controls |
 | Tall | 1 × 2 | Connectivity — Wi-Fi, Bluetooth and VPN stacked, a switch each |
 | Wide | 2 × 1 | Volume, brightness, microphone: icon, track, percentage |

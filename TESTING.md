@@ -107,6 +107,11 @@ seen once. If you only have ten minutes, do this section.
 - [ ] Connectivity rows have no switches; pressing a row opens that module's page, and the row's icon takes the same accent treatment as a standalone tile.
 - [ ] The VPN row is present even with no VPN configured, and its page says so plainly.
 - [ ] The tiled/floating icon is the same colour as the other tile icons in both light and dark mode.
+- [ ] With `shapes = { battery = "half", dns = "half" }` in config.toml, Battery and DNS draw icon-only at half width, four such tiles fit a row, and hovering shows name and state.
+- [ ] `shapes = { volume = "half" }` is ignored: the slider stays full-width.
+- [ ] Under every tile style, the icons and text sit in the same place — switching High → Medium → Low moves nothing.
+- [ ] Widening the Settings window widens the grid; nothing is clipped on the right.
+- [ ] Settings → Tiles: tapping a tile moves it to "Not shown" underneath; tapping it there brings it back. Drag works only among shown tiles.
 - [ ] Volume and brightness are wide tiles, two columns by one row, with horizontal tracks.
 - [ ] The group and the standalone tiles are independent: turning on both `connectivity` and `wifi` shows Wi-Fi twice; turning `wifi` off leaves the group's Wi-Fi row working.
 - [ ] Game Mode appears directly after Performance in the same list, not under a divider.

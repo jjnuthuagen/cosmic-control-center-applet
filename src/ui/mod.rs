@@ -25,7 +25,7 @@ use cosmic::widget::{
 use cosmic::{theme, Element};
 
 use crate::config::TileStyle;
-use crate::tile_layout::{pack, TileShape};
+use crate::tile_layout::{pack, TileShape, GRID_COLUMNS};
 
 /// Icon size inside a tile and a list row.
 pub const ICON_SIZE: u16 = 20;
@@ -115,6 +115,10 @@ const MAX_STATE_CHARS: usize = 14;
 
 /// A grid tile: an icon and the thing's current state.
 pub struct Tile<'a, Msg> {
+    /// Icon only — the Half shape. Name and state move into the tooltip,
+    /// because fourteen characters do not fit in half a tile and a clipped
+    /// "Balan" is worse than nothing.
+    compact: bool,
     icon_name: std::borrow::Cow<'a, str>,
     state: String,
     /// Full name of the control, shown on hover. The tile deliberately has no
@@ -138,6 +142,7 @@ impl<'a, Msg: Clone + 'static> Tile<'a, Msg> {
             active: false,
             style: TileStyle::default(),
             on_press: None,
+            compact: false,
         }
     }
 
@@ -155,6 +160,12 @@ impl<'a, Msg: Clone + 'static> Tile<'a, Msg> {
 
     pub fn on_press(mut self, msg: Msg) -> Self {
         self.on_press = Some(msg);
+        self
+    }
+
+    /// Draw icon-only, for the Half shape.
+    pub fn compact(mut self, compact: bool) -> Self {
+        self.compact = compact;
         self
     }
 
@@ -182,20 +193,30 @@ impl<'a, Msg: Clone + 'static> Tile<'a, Msg> {
             spacing,
         );
 
-        let content = row::with_capacity(2)
-            .align_y(Alignment::Center)
-            .spacing(spacing.gap)
-            .push(glyph)
-            .push(
-                text::body(truncate(&self.state, MAX_STATE_CHARS))
-                    .width(Length::Fill)
-                    // Tiles are a fixed height sized for one line. Without this
-                    // a long state string wraps, and the tile's content is
-                    // squeezed and sits out of line with its neighbour.
-                    // Character truncation alone is not enough: it counts
-                    // characters, and what overflows is pixels.
-                    .wrapping(cosmic::iced::widget::text::Wrapping::None),
-            );
+        let content: Element<'a, Msg> = if self.compact {
+            // Centred glyph, nothing else. The name and state are in the
+            // tooltip below.
+            container(glyph)
+                .width(Length::Fill)
+                .align_x(Alignment::Center)
+                .into()
+        } else {
+            row::with_capacity(2)
+                .align_y(Alignment::Center)
+                .spacing(spacing.gap)
+                .push(glyph)
+                .push(
+                    text::body(truncate(&self.state, MAX_STATE_CHARS))
+                        .width(Length::Fill)
+                        // Tiles are a fixed height sized for one line. Without
+                        // this a long state string wraps, and the tile's
+                        // content is squeezed and sits out of line with its
+                        // neighbour. Character truncation alone is not enough:
+                        // it counts characters, and what overflows is pixels.
+                        .wrapping(cosmic::iced::widget::text::Wrapping::None),
+                )
+                .into()
+        };
 
         // Only `High` tints the whole tile. `Medium` carries the signal on the
         // icon's base instead, so the tile itself must stay neutral or the two
@@ -220,8 +241,14 @@ impl<'a, Msg: Clone + 'static> Tile<'a, Msg> {
 
         // The name lives in the tooltip because the tile shows state, not name.
         // Without this, a user who does not recognise an icon has no way to
-        // find out what it is.
-        tooltip(tile, text::body(self.name), tooltip::Position::Top).into()
+        // find out what it is. A compact tile shows neither, so its tooltip
+        // carries both.
+        let hint = if self.compact && !self.state.is_empty() && self.state != self.name {
+            format!("{} — {}", self.name, self.state)
+        } else {
+            self.name
+        };
+        tooltip(tile, text::body(hint), tooltip::Position::Top).into()
     }
 }
 
@@ -352,14 +379,14 @@ pub fn tile_grid<'a, Msg: Clone + 'static>(
     tiles: Vec<(Element<'a, Msg>, TileShape)>,
     spacing: Spacing,
 ) -> Element<'a, Msg> {
-    use crate::tile_layout::{bands, Band, Entry};
+    use crate::tile_layout::{bands, Entry};
 
     let shapes: Vec<TileShape> = tiles.iter().map(|(_, shape)| *shape).collect();
-    let packed = pack(&shapes, 2);
+    let packed = pack(&shapes, GRID_COLUMNS);
     let layout = bands(&packed);
 
-    // Take elements out by index as bands ask for them. `Option` so each is
-    // moved exactly once; the band tests pin that every index is asked for
+    // Take elements out by index as the bands ask for them. `Option` so each
+    // is moved exactly once; the band tests pin that every index is asked for
     // exactly once, so a `None` here is a packer/bands mismatch, not a user
     // state — draw a ghost rather than panic inside `view`.
     let mut slots: Vec<Option<Element<'a, Msg>>> =
@@ -377,32 +404,26 @@ pub fn tile_grid<'a, Msg: Clone + 'static>(
     let mut column = cosmic::widget::column::with_capacity(layout.len()).spacing(spacing.gap);
 
     for band in layout {
-        let element: Element<'a, Msg> = match band {
-            Band::Flat(entries) => {
-                let mut r = row::with_capacity(entries.len()).spacing(spacing.gap);
-                for entry in entries {
-                    r = r.push(container(take(entry)).width(Length::FillPortion(1)));
+        let mut band_row = row::with_capacity(band.strips.len()).spacing(spacing.gap);
+        for strip in band.strips {
+            // A strip is a column of rows. A row with nothing in it is the
+            // lower half of a tile spanning two rows, which already occupies
+            // that space — skipping it keeps the column's spacing honest.
+            let mut strip_col =
+                cosmic::widget::column::with_capacity(strip.rows.len()).spacing(spacing.gap);
+            for entries in strip.rows {
+                if entries.is_empty() {
+                    continue;
                 }
-                r.into()
+                let mut r = row::with_capacity(entries.len()).spacing(spacing.gap);
+                for (entry, width) in entries {
+                    r = r.push(container(take(entry)).width(Length::FillPortion(width)));
+                }
+                strip_col = strip_col.push(r);
             }
-            Band::Tall(left, right) => {
-                let stack =
-                    |entries: Vec<Entry>, take: &mut dyn FnMut(Entry) -> Element<'a, Msg>| {
-                        let mut c = cosmic::widget::column::with_capacity(entries.len())
-                            .spacing(spacing.gap);
-                        for entry in entries {
-                            c = c.push(take(entry));
-                        }
-                        container(c).width(Length::FillPortion(1))
-                    };
-                row::with_capacity(2)
-                    .spacing(spacing.gap)
-                    .push(stack(left, &mut take))
-                    .push(stack(right, &mut take))
-                    .into()
-            }
-        };
-        column = column.push(element);
+            band_row = band_row.push(container(strip_col).width(Length::FillPortion(strip.width)));
+        }
+        column = column.push(band_row);
     }
 
     column.into()

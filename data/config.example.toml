@@ -55,6 +55,13 @@ style = "high"
 # tiling, keyboard-backlight, do-not-disturb, keep-awake, volume,
 # brightness, microphone.
 
+# Per-tile shapes. "half" is icon-only, four to a row — the name and state
+# show on hover. Only tiles that are normally a square accept it; the
+# sliders and the Connectivity group ignore it. The other values are the
+# shapes each tile already has: "small", "wide", "tall".
+#
+#   shapes = { battery = "half", dns = "half", dark-mode = "half" }
+
 # What the panel button shows. Omitted, it is the "toggles" preset below.
 #
 #   [appearance.icon]

@@ -39,8 +39,8 @@ const APP_ICON: &str = "io.github.jjnuthuagen.ControlCenter";
 const REPOSITORY: &str = env!("CARGO_PKG_REPOSITORY");
 
 /// The `[modules]` key that gates a tile, and the shape it packs as.
-fn preview_module_key(key: TileKey) -> (&'static str, TileShape) {
-    let module = match key {
+fn preview_module_key(key: TileKey) -> &'static str {
+    match key {
         TileKey::Connectivity => "connectivity",
         TileKey::Wifi => "wifi",
         TileKey::Bluetooth => "bluetooth",
@@ -58,8 +58,7 @@ fn preview_module_key(key: TileKey) -> (&'static str, TileShape) {
         TileKey::Volume => "volume",
         TileKey::Brightness => "brightness",
         TileKey::Microphone => "microphone",
-    };
-    (module, key.default_shape())
+    }
 }
 
 /// Lay a grab handle over a tile's top-right corner when `show` is set.
@@ -419,7 +418,8 @@ impl Settings {
         let mut hidden: Vec<(Element<'_, Message>, TileShape)> = Vec::with_capacity(20);
 
         for &key in self.preview_order().iter() {
-            let (module_key, shape) = preview_module_key(key);
+            let module_key = preview_module_key(key);
+            let shape = key.shape_with(&self.config.appearance.shapes);
             let enabled = self.module_enabled(module_key);
             let tile = self.preview_tile(key, enabled, theme_spacing);
             let dragging = self.dragging && self.pressed == Some(key);
@@ -591,6 +591,7 @@ impl Settings {
                 Tile::new(icon, label(ftl), label(ftl))
                     .active(enabled)
                     .style(style)
+                    .compact(key.shape_with(&self.config.appearance.shapes) == TileShape::Half)
                     .view(spacing)
             }
         }
@@ -861,7 +862,7 @@ impl Application for Settings {
                     self.config.appearance.order = std::mem::take(&mut self.working_order);
                 } else {
                     // A plain press selects or deselects.
-                    let module = preview_module_key(key).0;
+                    let module = preview_module_key(key);
                     let enabled = self.module_enabled(module);
                     self.set_module(module, !enabled);
                     self.working_order.clear();
@@ -876,7 +877,7 @@ impl Application for Settings {
                 // tile — the hidden grid is not part of the layout being
                 // edited. `on_enter` is only wired on shown tiles, but the
                 // pressed one could have been hidden by a tap a moment ago.
-                let shown = |k: TileKey| self.module_enabled(preview_module_key(k).0);
+                let shown = |k: TileKey| self.module_enabled(preview_module_key(k));
                 if let Some(picked) = self.pressed {
                     if picked != over && shown(picked) && shown(over) {
                         // Entering a different tile is what makes this a drag
