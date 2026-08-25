@@ -21,7 +21,10 @@ use cosmic::{Application, Element};
 
 use crate::config::{Config, PanelIcon, TileStyle};
 use crate::fl;
-use crate::ui::icons;
+use crate::tile_layout::{TileKey, TileShape, DEFAULT_ORDER};
+use crate::ui::{
+    connectivity_tile, icons, tall_slider_tile, tile_grid, ConnectivityRow, Spacing, Tile,
+};
 
 const WINDOW_WIDTH: f32 = 560.0;
 // Tall enough that Controls and Tile style are both visible without
@@ -34,29 +37,54 @@ const APP_ICON: &str = "io.github.jjnuthuagen.ControlCenter";
 
 const REPOSITORY: &str = env!("CARGO_PKG_REPOSITORY");
 
-/// Each toggleable module, paired with the label describing it.
+/// The `[modules]` key that gates a tile, and the shape it packs as.
+fn preview_module_key(key: TileKey) -> (&'static str, TileShape) {
+    let module = match key {
+        TileKey::Connectivity => "connectivity",
+        TileKey::Wifi => "wifi",
+        TileKey::Bluetooth => "bluetooth",
+        TileKey::Vpn => "vpn",
+        TileKey::Battery => "battery",
+        TileKey::Dns => "dns",
+        TileKey::DarkMode => "dark_mode",
+        TileKey::Tiling => "tiling",
+        TileKey::GameMode => "gamemode",
+        TileKey::Media => "media",
+        TileKey::DoNotDisturb => "do_not_disturb",
+        TileKey::KeepAwake => "keep_awake",
+        TileKey::ChargeThreshold => "charge_threshold",
+        TileKey::KeyboardBacklight => "keyboard_backlight",
+        TileKey::Volume => "volume",
+        TileKey::Brightness => "brightness",
+        TileKey::Microphone => "microphone",
+    };
+    (module, key.default_shape())
+}
+
+/// A preview tile with its module switch beneath it.
 ///
-/// A slice rather than a match arm per module so the list and the form cannot
-/// drift apart: adding a module means adding one row here.
-const MODULES: &[(&str, &str)] = &[
-    ("connectivity", "connectivity"),
-    ("wifi", "wifi"),
-    ("bluetooth", "bluetooth"),
-    ("battery", "battery"),
-    ("dns", "dns"),
-    ("volume", "volume"),
-    ("brightness", "brightness"),
-    ("dark_mode", "dark-mode"),
-    ("tiling", "tiling"),
-    ("gamemode", "game-mode"),
-    ("microphone", "microphone"),
-    ("keyboard_backlight", "keyboard-backlight"),
-    ("media", "media"),
-    ("vpn", "vpn"),
-    ("do_not_disturb", "do-not-disturb"),
-    ("keep_awake", "keep-awake"),
-    ("charge_threshold", "charge-limit"),
-];
+/// The switch sits under the tile rather than on it: a toggler drawn over a
+/// button steals the button's press, and the tile is already a button. Under
+/// it, in a row of its own, both stay reachable.
+fn with_switch<'a>(
+    tile: Element<'a, Message>,
+    module_key: &'static str,
+    enabled: bool,
+    spacing: u16,
+) -> Element<'a, Message> {
+    column::with_capacity(2)
+        .spacing(spacing / 2)
+        .push(tile)
+        .push(
+            row::with_capacity(2)
+                .push(cosmic::widget::Space::new().width(Length::Fill))
+                .push(
+                    toggler(enabled)
+                        .on_toggle(move |value| Message::ToggleModule(module_key, value)),
+                ),
+        )
+        .into()
+}
 
 /// Ask the desktop for an image file.
 ///
@@ -185,6 +213,9 @@ pub struct Settings {
 #[derive(Debug, Clone)]
 pub enum Message {
     Tab(segmented_button::Entity),
+    /// Preview tiles need a press handler to render as buttons; nothing
+    /// happens on press, because there is no module behind them here.
+    Noop,
     /// Another `--settings` invocation asked this window to come forward.
     Present,
     ToggleModule(&'static str, bool),
@@ -263,26 +294,151 @@ impl Settings {
         self.core.system_theme().cosmic().spacing.space_xs
     }
 
-    fn controls_section(&self) -> Element<'_, Message> {
+    /// The Tiles page: the popup's own grid, drawn here, with a switch under
+    /// every tile.
+    ///
+    /// Same packer, same tile widgets, same shapes and order as the popup, so
+    /// what you see is what the panel button opens. Two honest limits:
+    ///
+    /// * **State is a placeholder.** Settings is its own process with no
+    ///   D-Bus subscriptions — a module switched off is never constructed, and
+    ///   the whole point of that design is that Settings must not start
+    ///   sixteen bus clients just to draw a preview. So the Wi-Fi tile says
+    ///   "Wi-Fi", not the SSID. Layout, shape and order are exact; the words
+    ///   inside are not.
+    /// * **A switched-off tile stays visible, dimmed.** Removing it from the
+    ///   grid the instant it is switched off leaves nowhere to switch it back
+    ///   on. It stays put with its switch off, and the popup — which *does*
+    ///   honour the flag — drops it.
+    fn preview_section(&self) -> Element<'_, Message> {
         let spacing = self.spacing();
-        let mut section = column::with_capacity(MODULES.len() + 2)
+        let theme_spacing = Spacing::from_theme(self.core.system_theme());
+        let mut section = column::with_capacity(3)
             .spacing(spacing)
             .push(text::title4(fl!("settings-controls")))
-            .push(text::caption(fl!("settings-controls-detail")));
+            .push(text::caption(fl!("settings-preview-detail")));
 
-        for &(key, label) in MODULES {
-            section = section.push(
-                row::with_capacity(2)
-                    .align_y(Alignment::Center)
-                    .push(text::body(crate::i18n::lookup(label, None)).width(Length::Fill))
-                    .push(
-                        toggler(self.module_enabled(key))
-                            .on_toggle(move |value| Message::ToggleModule(key, value)),
-                    ),
-            );
+        let mut tiles: Vec<(Element<'_, Message>, TileShape)> = Vec::with_capacity(20);
+
+        for &key in self.preview_order().iter() {
+            let (module_key, shape) = preview_module_key(key);
+            let enabled = self.module_enabled(module_key);
+            let tile = self.preview_tile(key, enabled, theme_spacing);
+            tiles.push((with_switch(tile, module_key, enabled, spacing), shape));
         }
 
+        section = section.push(tile_grid(tiles, theme_spacing));
         section.into()
+    }
+
+    /// The tiles to preview, in the order the popup will draw them.
+    ///
+    /// Mirrors the popup's rule: with the Connectivity group on, Wi-Fi,
+    /// Bluetooth and VPN live inside it and do not appear on their own; with
+    /// it off, the three come first as standalone tiles.
+    fn preview_order(&self) -> Vec<TileKey> {
+        let mut order = Vec::with_capacity(DEFAULT_ORDER.len() + 3);
+        if self.config.modules.connectivity {
+            order.push(TileKey::Connectivity);
+        } else {
+            order.extend([TileKey::Wifi, TileKey::Bluetooth, TileKey::Vpn]);
+        }
+        order.extend(
+            DEFAULT_ORDER
+                .iter()
+                .copied()
+                .filter(|k| !k.is_connectivity_group()),
+        );
+        order
+    }
+
+    /// One preview tile, using the real widgets with placeholder state.
+    fn preview_tile(&self, key: TileKey, enabled: bool, spacing: Spacing) -> Element<'_, Message> {
+        let style = self.config.appearance.style;
+        let label = |ftl: &str| crate::i18n::lookup(ftl, None);
+
+        match key {
+            TileKey::Connectivity => {
+                let rows = [
+                    (
+                        "wifi",
+                        icons::wifi(false, false, true, true, 80),
+                        self.config.modules.wifi,
+                    ),
+                    (
+                        "bluetooth",
+                        icons::bluetooth(true, 0),
+                        self.config.modules.bluetooth,
+                    ),
+                    ("vpn", icons::vpn(false), self.config.modules.vpn),
+                ]
+                .into_iter()
+                .filter(|(_, _, on)| *on)
+                .map(|(ftl, icon, _)| ConnectivityRow {
+                    icon_name: icon,
+                    label: label(ftl),
+                    state: None,
+                    on: enabled,
+                    on_toggle: None,
+                    on_press: Message::Noop,
+                })
+                .collect();
+                connectivity_tile(rows, spacing)
+            }
+            TileKey::Volume => tall_slider_tile(
+                icons::volume(60.0, false),
+                label("volume"),
+                60.0,
+                |_| Message::Noop,
+                None,
+                enabled,
+                spacing,
+            ),
+            TileKey::Brightness => tall_slider_tile(
+                icons::brightness(70.0, false),
+                label("brightness"),
+                70.0,
+                |_| Message::Noop,
+                None,
+                enabled,
+                spacing,
+            ),
+            TileKey::Microphone => tall_slider_tile(
+                icons::microphone(50.0, false),
+                label("microphone"),
+                50.0,
+                |_| Message::Noop,
+                None,
+                enabled,
+                spacing,
+            ),
+            other => {
+                let (icon, ftl) = match other {
+                    TileKey::Wifi => (icons::wifi(false, false, true, true, 80), "wifi"),
+                    TileKey::Bluetooth => (icons::bluetooth(true, 0), "bluetooth"),
+                    TileKey::Vpn => (icons::vpn(false), "vpn"),
+                    TileKey::Battery => (icons::battery(Some(80.0), false), "battery"),
+                    TileKey::Dns => (icons::dns(), "dns"),
+                    TileKey::DarkMode => (icons::dark_mode(true), "dark-mode"),
+                    TileKey::Tiling => (icons::tiling(false), "tiling"),
+                    TileKey::GameMode => (icons::game_mode(), "game-mode"),
+                    TileKey::Media => (icons::media_play_pause(false), "media"),
+                    TileKey::DoNotDisturb => (icons::do_not_disturb(false), "do-not-disturb"),
+                    TileKey::KeepAwake => (icons::keep_awake(false), "keep-awake"),
+                    TileKey::ChargeThreshold => (icons::battery(Some(80.0), true), "charge-limit"),
+                    TileKey::KeyboardBacklight => (icons::keyboard(false), "keyboard-backlight"),
+                    // Handled above; unreachable here but the match must be total.
+                    TileKey::Connectivity
+                    | TileKey::Volume
+                    | TileKey::Brightness
+                    | TileKey::Microphone => (icons::applet(), "applet-name"),
+                };
+                Tile::new(icon, label(ftl), label(ftl))
+                    .active(enabled)
+                    .style(style)
+                    .view(spacing)
+            }
+        }
     }
 
     /// Switches for the tiles defined by `[[custom]]` in `config.toml`.
@@ -533,6 +689,7 @@ impl Application for Settings {
                 self.save();
             }
             Message::Tab(entity) => self.tabs.activate(entity),
+            Message::Noop => {}
             Message::Present => {
                 // Raise and focus, rather than opening a second window. The
                 // window may be behind something or on another workspace, so
@@ -625,7 +782,7 @@ impl Application for Settings {
             // blank window rather than the page people open this for.
             _ => column::with_capacity(3)
                 .spacing(spacing * 2)
-                .push(self.controls_section())
+                .push(self.preview_section())
                 .push(divider::horizontal::default())
                 .push(self.custom_section())
                 .into(),

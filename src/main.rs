@@ -13,7 +13,6 @@ mod modules;
 mod process;
 mod settings;
 mod single_instance;
-#[allow(dead_code)] // items are wired into the popup as the grid rework lands.
 mod tile_layout;
 mod ui;
 
