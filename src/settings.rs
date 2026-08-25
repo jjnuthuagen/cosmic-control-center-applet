@@ -184,16 +184,6 @@ pub struct Settings {
 #[derive(Debug, Clone)]
 pub enum Message {
     Tab(segmented_button::Entity),
-    /// First-tick self-message, used to set the title from `update` rather
-    /// than `init`.
-    ///
-    /// Setting `header_title` inside `init` did not take effect against
-    /// libcosmic `ef490df`: the header bar rendered with the field empty even
-    /// though it was written. The stock `application` example in the same
-    /// libcosmic tree sets its title from a method that returns a Task, so
-    /// this does the same — fire a message on the first frame and set both
-    /// titles from its handler.
-    InitTitle,
     /// Another `--settings` invocation asked this window to come forward.
     Present,
     ToggleModule(&'static str, bool),
@@ -516,12 +506,21 @@ impl Application for Settings {
             about,
         };
 
-        // Titles are set from `InitTitle` in `update`, not from here — see
-        // the note on that variant.
-        (
-            settings,
-            Task::done(cosmic::action::app(Message::InitTitle)),
-        )
+        // Set both titles right here, synchronously — the InitTitle Task path
+        // never fired, and the async example still calls set_header_title in
+        // init anyway.
+        let mut settings = settings;
+        settings.set_header_title(fl!("settings-window-title"));
+        eprintln!(
+            "[settings] init: header_title={:?}, main_window_id={:?}",
+            settings.core.window.header_title,
+            settings.core.main_window_id()
+        );
+        let title = match settings.core.main_window_id() {
+            Some(id) => settings.set_window_title(fl!("settings-window-title"), id),
+            None => Task::none(),
+        };
+        (settings, title)
     }
 
     fn update(&mut self, message: Message) -> Task<Message> {
@@ -531,16 +530,6 @@ impl Application for Settings {
                 self.save();
             }
             Message::Tab(entity) => self.tabs.activate(entity),
-            Message::InitTitle => {
-                // Two calls: `set_header_title` names the title area libcosmic
-                // draws inside the window; `set_window_title` names the window
-                // itself, for the switcher and the dock. Either alone leaves
-                // one blank.
-                self.set_header_title(fl!("settings-window-title"));
-                if let Some(id) = self.core.main_window_id() {
-                    return self.set_window_title(fl!("settings-window-title"), id);
-                }
-            }
             Message::Present => {
                 // Raise and focus, rather than opening a second window. The
                 // window may be behind something or on another workspace, so
