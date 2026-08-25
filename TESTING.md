@@ -99,8 +99,10 @@ seen once. If you only have ten minutes, do this section.
 - [ ] Battery page shows time remaining above the profiles (unplug first — on mains there is no estimate).
 - [ ] The popup opens as one grid: Connectivity wide at the top with a switch per row, sliders as tall tiles with vertical tracks, no separate slider rows underneath.
 - [ ] Muting volume from its icon replaces the vertical slider with a filled bar at the old level; unmuting brings the slider back at that level.
-- [ ] Settings → Tiles shows the same grid. Tap a tile: it takes an accent outline. Move over another tile: the picked one moves there and the rest shuffle. Tap again: it stays, and the popup opens in the new order next time.
-- [ ] Tapping the picked tile itself puts it back where it was and writes nothing.
+- [ ] Settings → Tiles shows the same grid, with no switches. Unselected tiles are dimmed behind a dashed outline.
+- [ ] Tapping a tile without moving the pointer selects or deselects it, and the popup gains or loses it.
+- [ ] Pressing and dragging across to another tile reorders instead: the dragged tile takes a solid accent outline, the rest make room, and releasing keeps it there.
+- [ ] A drag does not also toggle the tile it started on.
 - [ ] Connectivity is a narrow tile, one column wide and two rows tall, with Wi-Fi/Bluetooth/VPN stacked inside it.
 - [ ] Volume and brightness are wide tiles, two columns by one row, with horizontal tracks.
 - [ ] The group and the standalone tiles are independent: turning on both `connectivity` and `wifi` shows Wi-Fi twice; turning `wifi` off leaves the group's Wi-Fi row working.
