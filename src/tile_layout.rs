@@ -272,7 +272,6 @@ mod tests {
     }
 }
 
-
 /// A tile's placement on the grid.
 ///
 /// Uses 1-based column and row indices to line up with libcosmic's `Grid`
@@ -360,9 +359,8 @@ pub fn pack(shapes: &[TileShape], columns: u16) -> Pack {
             for row in start_row.. {
                 ensure_row(&mut occupied, row + height as usize - 1);
                 for col in 0..=(columns - width) as usize {
-                    let fits = (0..width as usize).all(|dc| {
-                        (0..height as usize).all(|dr| !occupied[row + dr][col + dc])
-                    });
+                    let fits = (0..width as usize)
+                        .all(|dc| (0..height as usize).all(|dr| !occupied[row + dr][col + dc]));
                     if fits {
                         break 'find (col as u16, row as u16);
                     }
@@ -436,8 +434,24 @@ mod pack_tests {
     fn a_pair_of_smalls_fills_one_row() {
         let pack = pack(&[small(), small()], 2);
         assert_eq!(pack.tiles.len(), 2);
-        assert_eq!(pack.tiles[0], Placement { column: 1, row: 1, width: 1, height: 1 });
-        assert_eq!(pack.tiles[1], Placement { column: 2, row: 1, width: 1, height: 1 });
+        assert_eq!(
+            pack.tiles[0],
+            Placement {
+                column: 1,
+                row: 1,
+                width: 1,
+                height: 1
+            }
+        );
+        assert_eq!(
+            pack.tiles[1],
+            Placement {
+                column: 2,
+                row: 1,
+                width: 1,
+                height: 1
+            }
+        );
         assert!(pack.ghosts.is_empty());
         assert_eq!(pack.rows, 1);
     }
@@ -447,15 +461,42 @@ mod pack_tests {
         // The whole point of ghosts: keep the last row square rather than
         // leaving a single tile floating on the left.
         let pack = pack(&[small()], 2);
-        assert_eq!(pack.tiles[0], Placement { column: 1, row: 1, width: 1, height: 1 });
-        assert_eq!(pack.ghosts, vec![Placement { column: 2, row: 1, width: 1, height: 1 }]);
+        assert_eq!(
+            pack.tiles[0],
+            Placement {
+                column: 1,
+                row: 1,
+                width: 1,
+                height: 1
+            }
+        );
+        assert_eq!(
+            pack.ghosts,
+            vec![Placement {
+                column: 2,
+                row: 1,
+                width: 1,
+                height: 1
+            }]
+        );
     }
 
     #[test]
     fn a_wide_takes_a_whole_row_by_itself() {
         let pack = pack(&[wide()], 2);
-        assert_eq!(pack.tiles[0], Placement { column: 1, row: 1, width: 2, height: 1 });
-        assert!(pack.ghosts.is_empty(), "a Wide fills the row; no ghost needed");
+        assert_eq!(
+            pack.tiles[0],
+            Placement {
+                column: 1,
+                row: 1,
+                width: 2,
+                height: 1
+            }
+        );
+        assert!(
+            pack.ghosts.is_empty(),
+            "a Wide fills the row; no ghost needed"
+        );
     }
 
     #[test]
@@ -464,9 +505,33 @@ mod pack_tests {
         // means Small alone up top with a ghost to its right, and the Wide
         // below it — not Small swapped with Wide.
         let pack = pack(&[small(), wide()], 2);
-        assert_eq!(pack.tiles[0], Placement { column: 1, row: 1, width: 1, height: 1 });
-        assert_eq!(pack.tiles[1], Placement { column: 1, row: 2, width: 2, height: 1 });
-        assert_eq!(pack.ghosts, vec![Placement { column: 2, row: 1, width: 1, height: 1 }]);
+        assert_eq!(
+            pack.tiles[0],
+            Placement {
+                column: 1,
+                row: 1,
+                width: 1,
+                height: 1
+            }
+        );
+        assert_eq!(
+            pack.tiles[1],
+            Placement {
+                column: 1,
+                row: 2,
+                width: 2,
+                height: 1
+            }
+        );
+        assert_eq!(
+            pack.ghosts,
+            vec![Placement {
+                column: 2,
+                row: 1,
+                width: 1,
+                height: 1
+            }]
+        );
     }
 
     #[test]
@@ -474,9 +539,33 @@ mod pack_tests {
         // A Tall in column 1 means column 2 of both rows is free for smalls.
         // Two Smalls after it should slot in there.
         let pack = pack(&[tall(), small(), small()], 2);
-        assert_eq!(pack.tiles[0], Placement { column: 1, row: 1, width: 1, height: 2 });
-        assert_eq!(pack.tiles[1], Placement { column: 2, row: 1, width: 1, height: 1 });
-        assert_eq!(pack.tiles[2], Placement { column: 2, row: 2, width: 1, height: 1 });
+        assert_eq!(
+            pack.tiles[0],
+            Placement {
+                column: 1,
+                row: 1,
+                width: 1,
+                height: 2
+            }
+        );
+        assert_eq!(
+            pack.tiles[1],
+            Placement {
+                column: 2,
+                row: 1,
+                width: 1,
+                height: 1
+            }
+        );
+        assert_eq!(
+            pack.tiles[2],
+            Placement {
+                column: 2,
+                row: 2,
+                width: 1,
+                height: 1
+            }
+        );
         assert!(pack.ghosts.is_empty());
         assert_eq!(pack.rows, 2);
     }
@@ -486,8 +575,24 @@ mod pack_tests {
         // Tall in col 1, rows 1-2. Wide needs both cols so it cannot sit at
         // row 1 or row 2 — it has to wait for row 3.
         let pack = pack(&[tall(), wide()], 2);
-        assert_eq!(pack.tiles[0], Placement { column: 1, row: 1, width: 1, height: 2 });
-        assert_eq!(pack.tiles[1], Placement { column: 1, row: 3, width: 2, height: 1 });
+        assert_eq!(
+            pack.tiles[0],
+            Placement {
+                column: 1,
+                row: 1,
+                width: 1,
+                height: 2
+            }
+        );
+        assert_eq!(
+            pack.tiles[1],
+            Placement {
+                column: 1,
+                row: 3,
+                width: 2,
+                height: 1
+            }
+        );
         // Two ghosts, one per row, on the free column-2 of rows 1 and 2.
         assert_eq!(pack.ghosts.len(), 2);
     }
@@ -496,8 +601,24 @@ mod pack_tests {
     fn two_talls_sit_side_by_side_not_stacked() {
         // Left tall, right tall, done in two rows. Not four rows stacked.
         let pack = pack(&[tall(), tall()], 2);
-        assert_eq!(pack.tiles[0], Placement { column: 1, row: 1, width: 1, height: 2 });
-        assert_eq!(pack.tiles[1], Placement { column: 2, row: 1, width: 1, height: 2 });
+        assert_eq!(
+            pack.tiles[0],
+            Placement {
+                column: 1,
+                row: 1,
+                width: 1,
+                height: 2
+            }
+        );
+        assert_eq!(
+            pack.tiles[1],
+            Placement {
+                column: 2,
+                row: 1,
+                width: 1,
+                height: 2
+            }
+        );
         assert_eq!(pack.rows, 2);
         assert!(pack.ghosts.is_empty());
     }

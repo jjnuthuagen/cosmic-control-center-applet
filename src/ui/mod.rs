@@ -20,7 +20,7 @@ pub mod icons;
 
 use cosmic::iced::{Alignment, Background, Border, Color, Length, Padding};
 use cosmic::widget::{
-    button, container, icon, progress_bar, row, scrollable, slider, text, toggler, tooltip,
+    button, container, icon, row, scrollable, text, toggler, tooltip, vertical_slider,
 };
 use cosmic::{theme, Element};
 
@@ -332,55 +332,129 @@ fn assign(
     ))
 }
 
-/// An icon plus a full-width slider, used for volume and brightness.
+/// The Tall slider tile: icon on top, vertical slider, percent at bottom.
 ///
-/// When `enabled` is false the slider is replaced by an inert progress bar
-/// rather than a styled-grey slider. That is deliberate: a disabled-looking
-/// slider that still moves under the cursor is worse than one that plainly does
-/// not respond, and iced's slider always takes a change handler, so "disabled"
-/// would otherwise mean "still draggable, just painted differently".
-pub fn slider_row<'a, Msg: Clone + 'static>(
+/// A drop-in replacement for [`slider_row`] that occupies a `TileShape::Tall`
+/// footprint (one column, two rows) in the grid. Used for volume, brightness
+/// and microphone.
+///
+/// The icon is still a button — pressing it mutes / dims, the same way the
+/// slider row worked, so the pattern the user already knows carries through
+/// to the taller form. When `enabled` is false the vertical slider is
+/// replaced by an inert filled bar showing where the level was, so a
+/// muted volume tile still says "you were at 45%".
+///
+/// The tile itself uses the same rounded background as the other tiles for
+/// visual consistency: a bare column with no card behind it would sit oddly
+/// next to the Small tiles it shares a row with.
+pub fn tall_slider_tile<'a, Msg: Clone + 'static>(
     icon_name: &'a str,
+    label: impl Into<String>,
     value: f64,
     on_change: impl Fn(f64) -> Msg + 'a,
     on_icon_press: Option<Msg>,
     enabled: bool,
     spacing: Spacing,
 ) -> Element<'a, Msg> {
-    let leading: Element<'a, Msg> = match on_icon_press {
+    let icon_element: Element<'a, Msg> = match on_icon_press {
         Some(msg) => button::icon(icon::from_name(icon_name).size(ICON_SIZE))
-            .padding(spacing.pad_y)
+            .padding(spacing.pad_y / 2)
             .on_press(msg)
             .into(),
         None => container(icon::from_name(icon_name).size(ICON_SIZE))
-            .padding(spacing.pad_y)
+            .padding(spacing.pad_y / 2)
             .into(),
     };
 
+    // The vertical slider needs an explicit height, because a vertical slider
+    // inside a Column with Length::Fill collapses to its minimum without one.
+    // The Tall tile is two rows high, so the middle track gets the tile's own
+    // pair-of-rows height minus what the icon and percent above and below need.
+    let track_height = tile_height(spacing) * 2.0 + f32::from(spacing.gap)
+        - f32::from(ICON_SIZE) * 2.0
+        - f32::from(spacing.gap) * 2.0
+        - f32::from(spacing.pad_y) * 2.0;
     let track: Element<'a, Msg> = if enabled {
-        slider(0.0..=100.0, value, on_change)
+        vertical_slider(0.0..=100.0, value, on_change)
             .step(1.0)
-            .width(Length::Fill)
+            .height(Length::Fixed(track_height.max(24.0)))
             .into()
     } else {
-        // Still shows where the level *was*, so turning it back on is not a
-        // surprise, but takes no input.
-        progress_bar::determinate_linear((value / 100.0) as f32)
-            .width(Length::Fill)
-            .into()
+        // Still shows where it was. A bar rather than a live slider so that
+        // muted-then-dragged doesn't accidentally set a new value.
+        inert_vertical_bar(value, track_height.max(24.0), spacing)
     };
 
-    container(
-        row::with_capacity(2)
-            .align_y(Alignment::Center)
-            .spacing(spacing.gap)
-            .push(leading)
-            .push(track),
-    )
-    // Sliders sit next to tiles that have their own inset; without matching
-    // horizontal padding the track runs wider than everything above it.
-    .padding(Padding::from([0, spacing.pad_x]))
-    .into()
+    let percent = text::caption(format!("{}%", value.round() as u32));
+
+    let column = cosmic::widget::column::with_capacity(3)
+        .align_x(Alignment::Center)
+        .spacing(spacing.gap)
+        .push(icon_element)
+        .push(track)
+        .push(percent);
+
+    // Same rounded background as a Small tile, using libcosmic's Primary
+    // container style — writing our own container::Style referenced private
+    // cosmic-theme fields, which do not compile against `ef490df`. Height is
+    // the Tall footprint: two Small rows plus the gap that would otherwise
+    // sit between them.
+    let tile: Element<'a, Msg> = container(column)
+        .padding(spacing.padding())
+        .width(Length::Fill)
+        .height(Length::Fixed(
+            tile_height(spacing) * 2.0 + f32::from(spacing.gap),
+        ))
+        .align_x(Alignment::Center)
+        .class(theme::Container::Primary)
+        .into();
+
+    // The tile has no visible heading — it is a slider first — so the label
+    // shows on hover, matching how the Small tile behaves.
+    tooltip(tile, text::body(label.into()), tooltip::Position::Top).into()
+}
+
+/// A read-only vertical bar showing where a disabled slider would sit.
+///
+/// A vertical container split into two: a spacer below and a filled cap above,
+/// with the cap sized as a fraction of the whole. Deliberately does not use
+/// iced's `progress_bar`, which is horizontal only.
+fn inert_vertical_bar<'a, Msg: 'a>(
+    percent: f64,
+    height: f32,
+    spacing: Spacing,
+) -> Element<'a, Msg> {
+    let fraction = (percent / 100.0).clamp(0.0, 1.0) as f32;
+    let filled_height = height * fraction;
+    let empty_height = height - filled_height;
+
+    let filled = container(cosmic::widget::Space::new())
+        .width(Length::Fixed(6.0))
+        .height(Length::Fixed(filled_height))
+        .class(theme::Container::Custom(Box::new(|theme| {
+            let cosmic = theme.cosmic();
+            let mut fill = cosmic.on_bg_color();
+            fill.alpha = 0.55;
+            container::Style {
+                background: Some(Background::Color(Color::from(fill))),
+                border: Border {
+                    radius: cosmic.corner_radii.radius_xs.into(),
+                    ..Default::default()
+                },
+                ..Default::default()
+            }
+        })));
+
+    let empty = container(cosmic::widget::Space::new())
+        .width(Length::Fixed(6.0))
+        .height(Length::Fixed(empty_height));
+
+    let _ = spacing;
+    cosmic::widget::column::with_capacity(2)
+        .align_x(Alignment::Center)
+        .push(empty)
+        .push(filled)
+        .into()
 }
 
 /// A row whose control is an actual switch.

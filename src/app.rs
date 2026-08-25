@@ -23,8 +23,10 @@ use crate::modules::{
     battery, bluetooth, brightness, caffeine, custom, dns, gamemode, keyboard, media, network,
     system, tiling, volume, vpn,
 };
+use crate::tile_layout::TileShape;
 use crate::ui::{
-    icons, list_row, page_header, scrollable_page, slider_row, tile_grid, toggle_row, Spacing, Tile,
+    icons, list_row, page_header, scrollable_page, tall_slider_tile, tile_grid, toggle_row,
+    Spacing, Tile,
 };
 
 /// Wide enough for two tiles plus their state text, narrow enough not to
@@ -273,19 +275,23 @@ impl App {
 
     fn root_page(&self) -> Element<'_, Message> {
         let spacing = self.spacing();
-        let mut tiles: Vec<Element<'_, Message>> = Vec::with_capacity(6);
+        // Each entry pairs its element with the footprint the packer
+        // should give it: Small unless said otherwise (sliders are Tall,
+        // Connectivity — when it lands — is Wide).
+        let mut tiles: Vec<(Element<'_, Message>, TileShape)> = Vec::with_capacity(9);
 
         if self.show_wifi() {
-            tiles.push(
+            tiles.push((
                 Tile::new(wifi_icon(&self.wifi), fl!("wifi"), self.wifi_state_text())
                     .active(self.wifi.enabled && !self.wifi.airplane_mode)
                     .on_press(Message::Navigate(Page::Wifi))
                     .style(self.config.appearance.style)
                     .view(spacing),
-            );
+                TileShape::Small,
+            ));
         }
         if self.show_bluetooth() {
-            tiles.push(
+            tiles.push((
                 Tile::new(
                     icons::bluetooth(self.bluetooth.powered, self.bluetooth.connected_devices),
                     fl!("bluetooth"),
@@ -295,7 +301,8 @@ impl App {
                 .on_press(Message::Navigate(Page::Bluetooth))
                 .style(self.config.appearance.style)
                 .view(spacing),
-            );
+                TileShape::Small,
+            ));
         }
         if self.show_battery() {
             let mut tile = Tile::new(
@@ -307,19 +314,23 @@ impl App {
             if self.battery.profiles.is_shown() {
                 tile = tile.on_press(Message::Navigate(Page::Battery));
             }
-            tiles.push(tile.style(self.config.appearance.style).view(spacing));
+            tiles.push((
+                tile.style(self.config.appearance.style).view(spacing),
+                TileShape::Small,
+            ));
         }
         if self.show_dns() {
             let state = self
                 .dns
                 .active()
                 .map_or_else(|| fl!("dns-custom"), provider_label);
-            tiles.push(
+            tiles.push((
                 Tile::new(icons::dns(), fl!("dns"), state)
                     .on_press(Message::Navigate(Page::Dns))
                     .style(self.config.appearance.style)
                     .view(spacing),
-            );
+                TileShape::Small,
+            ));
         }
         if self.show_dark_mode() {
             let state = if self.system.dark {
@@ -327,13 +338,14 @@ impl App {
             } else {
                 fl!("mode-light")
             };
-            tiles.push(
+            tiles.push((
                 Tile::new(icons::dark_mode(self.system.dark), fl!("dark-mode"), state)
                     .active(self.system.dark)
                     .on_press(Message::ToggleDark)
                     .style(self.config.appearance.style)
                     .view(spacing),
-            );
+                TileShape::Small,
+            ));
         }
         if self.show_tiling() {
             let state = if self.tiling.tiled {
@@ -341,13 +353,14 @@ impl App {
             } else {
                 fl!("tiling-off")
             };
-            tiles.push(
+            tiles.push((
                 Tile::new(icons::tiling(self.tiling.tiled), fl!("tiling"), state)
                     .active(self.tiling.tiled)
                     .on_press(Message::ToggleTiling)
                     .style(self.config.appearance.style)
                     .view(spacing),
-            );
+                TileShape::Small,
+            ));
         }
 
         if self.show_vpn() {
@@ -355,7 +368,7 @@ impl App {
                 .vpn
                 .active_name()
                 .map_or_else(|| fl!("vpn-off"), str::to_string);
-            tiles.push(
+            tiles.push((
                 Tile::new(
                     icons::vpn(self.vpn.active_name().is_some()),
                     fl!("vpn"),
@@ -365,10 +378,11 @@ impl App {
                 .style(self.config.appearance.style)
                 .on_press(Message::Navigate(Page::Vpn))
                 .view(spacing),
-            );
+                TileShape::Small,
+            ));
         }
         if self.show_keyboard() {
-            tiles.push(
+            tiles.push((
                 Tile::new(
                     icons::keyboard(self.keyboard.is_on()),
                     fl!("keyboard-backlight"),
@@ -378,7 +392,8 @@ impl App {
                 .style(self.config.appearance.style)
                 .on_press(Message::CycleKeyboard)
                 .view(spacing),
-            );
+                TileShape::Small,
+            ));
         }
         if self.show_do_not_disturb() {
             let state = if self.system.do_not_disturb {
@@ -386,7 +401,7 @@ impl App {
             } else {
                 fl!("off")
             };
-            tiles.push(
+            tiles.push((
                 Tile::new(
                     icons::do_not_disturb(self.system.do_not_disturb),
                     fl!("do-not-disturb"),
@@ -396,7 +411,8 @@ impl App {
                 .style(self.config.appearance.style)
                 .on_press(Message::ToggleDoNotDisturb)
                 .view(spacing),
-            );
+                TileShape::Small,
+            ));
         }
         if self.show_keep_awake() {
             // Name whoever is holding it, rather than a bare "On" that leaves
@@ -406,7 +422,7 @@ impl App {
                 (None, true) => fl!("on"),
                 (None, false) => fl!("off"),
             };
-            tiles.push(
+            tiles.push((
                 Tile::new(
                     icons::keep_awake(self.caffeine.is_on()),
                     fl!("keep-awake"),
@@ -423,13 +439,14 @@ impl App {
                         .then_some(Message::ToggleKeepAwake),
                 )
                 .view(spacing),
-            );
+                TileShape::Small,
+            ));
         }
 
         // User-defined tiles go last, after everything built in, so adding one
         // never reshuffles the controls someone is used to.
         for (index, entry) in self.custom.iter().enumerate() {
-            tiles.push(
+            tiles.push((
                 Tile::new(
                     icons::resolve_owned(&entry.icon),
                     entry.name.clone(),
@@ -438,65 +455,70 @@ impl App {
                 .style(self.config.appearance.style)
                 .on_press(Message::RunCustom(index))
                 .view(spacing),
-            );
+                TileShape::Small,
+            ));
         }
 
-        let has_tiles = !tiles.is_empty();
-        // `tiles` is moved into `shaped` below; capture the flag first.
-        let mut content = column::with_capacity(8).spacing(spacing.section);
-        // Wrap every existing tile as `Small` for now. Shapes are introduced
-        // per-tile in the next steps (sliders as Tall, Connectivity as Wide).
-        let shaped: Vec<_> = tiles
-            .into_iter()
-            .map(|tile| (tile, crate::tile_layout::TileShape::Small))
-            .collect();
-        if !shaped.is_empty() {
-            content = content.push(tile_grid(shaped, spacing));
-        }
-
-        let has_sliders = self.show_volume() || self.show_brightness();
-        if has_tiles && has_sliders {
-            content = content.push(divider::horizontal::default());
-        }
-
+        // Sliders are Tall tiles now, packed into the same grid rather than
+        // laid out as separate full-width rows underneath. They come after
+        // the built-in tiles and before the custom ones so the popup does
+        // not reshuffle a familiar layout when a user adds a custom tile.
         if self.show_volume() {
-            content = content.push(slider_row(
-                icons::volume(self.volume.percent.unwrap_or(0.0), self.volume.muted),
-                self.volume.percent.unwrap_or(0.0),
-                Message::SetVolume,
-                Some(Message::ToggleMute),
-                !self.volume.muted,
-                spacing,
+            tiles.push((
+                tall_slider_tile(
+                    icons::volume(self.volume.percent.unwrap_or(0.0), self.volume.muted),
+                    fl!("volume"),
+                    self.volume.percent.unwrap_or(0.0),
+                    Message::SetVolume,
+                    Some(Message::ToggleMute),
+                    !self.volume.muted,
+                    spacing,
+                ),
+                TileShape::Tall,
             ));
         }
         if self.show_brightness() {
-            content = content.push(slider_row(
-                icons::brightness(
+            tiles.push((
+                tall_slider_tile(
+                    icons::brightness(
+                        self.brightness.percent.unwrap_or(0.0),
+                        self.brightness.dimmed,
+                    ),
+                    fl!("brightness"),
                     self.brightness.percent.unwrap_or(0.0),
-                    self.brightness.dimmed,
+                    Message::SetBrightness,
+                    Some(Message::ToggleDim),
+                    !self.brightness.dimmed,
+                    spacing,
                 ),
-                self.brightness.percent.unwrap_or(0.0),
-                Message::SetBrightness,
-                Some(Message::ToggleDim),
-                !self.brightness.dimmed,
-                spacing,
+                TileShape::Tall,
             ));
         }
-
         if self.show_microphone() {
-            content = content.push(slider_row(
-                icons::microphone(
+            tiles.push((
+                tall_slider_tile(
+                    icons::microphone(
+                        self.microphone.percent.unwrap_or(0.0),
+                        self.microphone.muted,
+                    ),
+                    fl!("microphone"),
                     self.microphone.percent.unwrap_or(0.0),
-                    self.microphone.muted,
+                    Message::SetMicrophone,
+                    Some(Message::ToggleMicrophoneMute),
+                    !self.microphone.muted,
+                    spacing,
                 ),
-                self.microphone.percent.unwrap_or(0.0),
-                Message::SetMicrophone,
-                Some(Message::ToggleMicrophoneMute),
-                !self.microphone.muted,
-                spacing,
+                TileShape::Tall,
             ));
         }
 
+        let mut content = column::with_capacity(4).spacing(spacing.section);
+        if !tiles.is_empty() {
+            content = content.push(tile_grid(tiles, spacing));
+        }
+
+        // Media stays a full-width row underneath: it has three buttons and a
+        // scrolling title, not a value to nudge.
         if self.show_media() {
             content = content.push(divider::horizontal::default());
             content = content.push(self.media_row(spacing));
