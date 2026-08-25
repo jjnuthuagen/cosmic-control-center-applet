@@ -477,10 +477,13 @@ pub fn connectivity_tile<'a, Msg: Clone + 'static>(
         // The whole row is the button — press it to open that thing's page,
         // exactly as pressing a tile does. With no message it is a plain
         // container instead: see the note on `on_press`.
-        // No vertical padding of its own: the row's height is the icon on its
-        // base, and any padding here would have to come out of the budget
-        // `tile_height` already spent.
-        let padding = Padding::from([0, spacing.pad_x / 2]);
+        // No padding of its own in either axis. Vertically, the row's height
+        // is the icon on its base and any padding would come out of the budget
+        // `tile_height` already spent. Horizontally, the tile's own inset is
+        // the same `pad_x` a Small tile uses, so a row inset on top of it put
+        // this icon 4px further from the edge than every other tile's — which
+        // is exactly enough to look wrong without looking like a bug.
+        let padding = Padding::ZERO;
         let height = Length::Fixed(connectivity_row_height(spacing));
         let body: Element<'a, Msg> = match row_data.on_press {
             Some(msg) => button::custom(inner)

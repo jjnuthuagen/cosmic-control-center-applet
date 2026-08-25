@@ -179,10 +179,12 @@ impl App {
     /// machine with no Wi-Fi, no Bluetooth and no VPN gets no group tile,
     /// not an empty card.
     fn show_connectivity(&self) -> bool {
+        // The group's own flag, and nothing else. It always has at least the
+        // VPN row to show, so there is no "empty card" case to guard against,
+        // and it must not look at the standalone tiles' flags: the group and
+        // the standalone tiles are independent choices — have both, either,
+        // or neither.
         self.config.modules.connectivity
-            && (self.wifi.availability.is_shown()
-                || self.bluetooth.availability.is_shown()
-                || self.config.modules.vpn)
     }
 
     // Rows inside the group gate on the hardware alone. The `wifi` flag is
@@ -329,11 +331,12 @@ impl App {
             });
         }
 
-        // Not gated on availability, unlike the two above. "No VPN profiles
-        // are saved" is a thing the user needs told, and a row that is simply
-        // absent tells them nothing — it reads as the applet not supporting
-        // VPNs at all. The page it opens explains.
-        if self.config.modules.vpn {
+        // Always present, and gated on nothing — not the hardware, and not
+        // the standalone VPN tile's flag, which is what it used to check and
+        // which made the group's row vanish when that tile was switched off.
+        // "No VPN profiles are saved" is a thing the user needs told, and a
+        // row that is simply absent tells them nothing. The page explains.
+        {
             let active = self.vpn.active_name().is_some();
             rows.push(ConnectivityRow {
                 icon_name: icons::vpn(active),
