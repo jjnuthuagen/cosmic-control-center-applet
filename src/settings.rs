@@ -39,6 +39,7 @@ const REPOSITORY: &str = env!("CARGO_PKG_REPOSITORY");
 /// A slice rather than a match arm per module so the list and the form cannot
 /// drift apart: adding a module means adding one row here.
 const MODULES: &[(&str, &str)] = &[
+    ("connectivity", "connectivity"),
     ("wifi", "wifi"),
     ("bluetooth", "bluetooth"),
     ("battery", "battery"),
@@ -205,6 +206,7 @@ impl Settings {
     fn module_enabled(&self, key: &str) -> bool {
         let m = &self.config.modules;
         match key {
+            "connectivity" => m.connectivity,
             "wifi" => m.wifi,
             "bluetooth" => m.bluetooth,
             "battery" => m.battery,
@@ -228,6 +230,7 @@ impl Settings {
     fn set_module(&mut self, key: &str, value: bool) {
         let m = &mut self.config.modules;
         match key {
+            "connectivity" => m.connectivity = value,
             "wifi" => m.wifi = value,
             "bluetooth" => m.bluetooth = value,
             "battery" => m.battery = value,

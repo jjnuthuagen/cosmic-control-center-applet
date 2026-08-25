@@ -332,6 +332,88 @@ fn assign(
     ))
 }
 
+/// One row inside the [`connectivity_tile`].
+///
+/// Deliberately not a reuse of [`toggle_row`]: that is a page-level row with
+/// its own padding, and three of them stacked inside a tile would be taller
+/// than the Wide footprint allows. This is the compact form.
+pub struct ConnectivityRow<'a, Msg> {
+    pub icon_name: &'a str,
+    pub label: String,
+    /// The one line of state under the label — an SSID, "2 devices", a
+    /// VPN profile name. `None` when there is nothing to say.
+    pub state: Option<String>,
+    pub on: bool,
+    /// Pressing the switch. `None` greys the switch out — hardware-killed
+    /// Wi-Fi, for instance, where flipping it would do nothing.
+    pub on_toggle: Option<Msg>,
+    /// Pressing the row body, to drill into that module's page.
+    pub on_press: Msg,
+}
+
+/// The Wide tile grouping Wi-Fi, Bluetooth and VPN.
+///
+/// Modelled on the macOS Control Centre's connectivity block: one card,
+/// three rows, each row a switch and a line of state, with the row body
+/// itself a button into the module's page. Rows come and go with what the
+/// machine actually has — a desktop without a Wi-Fi adapter gets two rows,
+/// not a greyed-out third.
+///
+/// Occupies [`TileShape::Wide`] — two columns, one row — so it packs at
+/// the top of the grid without being split around. Its height is that of a
+/// Small tile stretched to fit however many rows are present, so the packer
+/// treats it as one row-unit and the grid does not gain a ragged edge.
+pub fn connectivity_tile<'a, Msg: Clone + 'static>(
+    rows: Vec<ConnectivityRow<'a, Msg>>,
+    spacing: Spacing,
+) -> Element<'a, Msg> {
+    let mut column = cosmic::widget::column::with_capacity(rows.len()).spacing(spacing.gap / 2);
+
+    for row_data in rows {
+        let mut labels = cosmic::widget::column::with_capacity(2)
+            .push(text::body(row_data.label).wrapping(cosmic::iced::widget::text::Wrapping::None));
+        if let Some(state) = row_data.state {
+            labels = labels.push(
+                text::caption(truncate(&state, MAX_STATE_CHARS * 2))
+                    .wrapping(cosmic::iced::widget::text::Wrapping::None),
+            );
+        }
+
+        let mut switch = toggler(row_data.on);
+        if let Some(msg) = row_data.on_toggle {
+            switch = switch.on_toggle(move |_| msg.clone());
+        }
+
+        // The row body is the button; the switch sits outside it so a press
+        // on the switch does not also open the page.
+        let body = button::custom(
+            row::with_capacity(2)
+                .align_y(Alignment::Center)
+                .spacing(spacing.gap)
+                .push(icon::from_name(row_data.icon_name).size(ICON_SIZE))
+                .push(labels.width(Length::Fill)),
+        )
+        .padding(Padding::from([spacing.pad_y / 2, spacing.pad_x / 2]))
+        .class(button::ButtonClass::Text)
+        .width(Length::Fill)
+        .on_press(row_data.on_press);
+
+        column = column.push(
+            row::with_capacity(2)
+                .align_y(Alignment::Center)
+                .spacing(spacing.gap)
+                .push(body)
+                .push(switch),
+        );
+    }
+
+    container(column)
+        .padding(spacing.padding())
+        .width(Length::Fill)
+        .class(theme::Container::Primary)
+        .into()
+}
+
 /// The Tall slider tile: icon on top, vertical slider, percent at bottom.
 ///
 /// A drop-in replacement for [`slider_row`] that occupies a `TileShape::Tall`

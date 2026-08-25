@@ -25,8 +25,8 @@ use crate::modules::{
 };
 use crate::tile_layout::TileShape;
 use crate::ui::{
-    icons, list_row, page_header, scrollable_page, tall_slider_tile, tile_grid, toggle_row,
-    Spacing, Tile,
+    connectivity_tile, icons, list_row, page_header, scrollable_page, tall_slider_tile, tile_grid,
+    toggle_row, ConnectivityRow, Spacing, Tile,
 };
 
 /// Wide enough for two tiles plus their state text, narrow enough not to
@@ -105,6 +105,8 @@ pub enum Message {
     MediaPrevious,
 
     ToggleVpn(String),
+    /// One-press VPN switch from the Connectivity tile.
+    ToggleVpnQuick,
 
     SetVolume(f64),
     ToggleMute,
@@ -173,12 +175,36 @@ impl App {
     // The two are separate: config is the user's preference, availability is
     // the machine's answer, and nobody should have to switch off a tile that
     // was never going to work.
-    fn show_wifi(&self) -> bool {
+    /// Whether the grouped Connectivity tile is on and has at least one row.
+    ///
+    /// The group needs the user's flag *and* something to put in it: a
+    /// machine with no Wi-Fi, no Bluetooth and no VPN gets no group tile,
+    /// not an empty card.
+    fn show_connectivity(&self) -> bool {
+        self.config.modules.connectivity
+            && (self.wifi_available() || self.bluetooth_available() || self.vpn_available())
+    }
+
+    fn wifi_available(&self) -> bool {
         self.config.modules.wifi && self.wifi.availability.is_shown()
     }
 
-    fn show_bluetooth(&self) -> bool {
+    fn bluetooth_available(&self) -> bool {
         self.config.modules.bluetooth && self.bluetooth.availability.is_shown()
+    }
+
+    fn vpn_available(&self) -> bool {
+        self.config.modules.vpn && self.vpn.availability.is_shown()
+    }
+
+    // The standalone tiles are hidden while the group is showing — the group
+    // *replaces* them, it does not sit alongside.
+    fn show_wifi(&self) -> bool {
+        self.wifi_available() && !self.show_connectivity()
+    }
+
+    fn show_bluetooth(&self) -> bool {
+        self.bluetooth_available() && !self.show_connectivity()
     }
 
     fn show_battery(&self) -> bool {
@@ -214,7 +240,7 @@ impl App {
     }
 
     fn show_vpn(&self) -> bool {
-        self.config.modules.vpn && self.vpn.availability.is_shown()
+        self.vpn_available() && !self.show_connectivity()
     }
 
     fn show_keep_awake(&self) -> bool {
@@ -273,12 +299,69 @@ impl App {
         }
     }
 
+    /// The Wide Connectivity tile, with one row per available module.
+    fn connectivity_tile(&self, spacing: Spacing) -> Element<'_, Message> {
+        let mut rows = Vec::with_capacity(3);
+
+        if self.wifi_available() {
+            let killed = self.wifi.hardware_killed || self.wifi.airplane_mode;
+            rows.push(ConnectivityRow {
+                icon_name: wifi_icon(&self.wifi),
+                label: fl!("wifi"),
+                state: Some(self.wifi_state_text()),
+                on: self.wifi.enabled && !killed,
+                // A hardware kill switch or airplane mode holds the radio off;
+                // a switch that flips and then flips back is worse than one
+                // that is plainly disabled.
+                on_toggle: (!killed).then_some(Message::WifiToggleRadio),
+                on_press: Message::Navigate(Page::Wifi),
+            });
+        }
+
+        if self.bluetooth_available() {
+            rows.push(ConnectivityRow {
+                icon_name: icons::bluetooth(
+                    self.bluetooth.powered,
+                    self.bluetooth.connected_devices,
+                ),
+                label: fl!("bluetooth"),
+                state: Some(self.bluetooth_state_text()),
+                on: self.bluetooth.powered,
+                on_toggle: Some(Message::BluetoothTogglePower),
+                on_press: Message::Navigate(Page::Bluetooth),
+            });
+        }
+
+        if self.vpn_available() {
+            let active = self.vpn.active_name().is_some();
+            rows.push(ConnectivityRow {
+                icon_name: icons::vpn(active),
+                label: fl!("vpn"),
+                state: Some(
+                    self.vpn
+                        .active_name()
+                        .map_or_else(|| fl!("vpn-off"), str::to_string),
+                ),
+                on: active,
+                // Only meaningful when there is a profile to switch on.
+                on_toggle: (!self.vpn.profiles.is_empty()).then_some(Message::ToggleVpnQuick),
+                on_press: Message::Navigate(Page::Vpn),
+            });
+        }
+
+        connectivity_tile(rows, spacing)
+    }
+
     fn root_page(&self) -> Element<'_, Message> {
         let spacing = self.spacing();
         // Each entry pairs its element with the footprint the packer
         // should give it: Small unless said otherwise (sliders are Tall,
         // Connectivity — when it lands — is Wide).
         let mut tiles: Vec<(Element<'_, Message>, TileShape)> = Vec::with_capacity(9);
+
+        if self.show_connectivity() {
+            tiles.push((self.connectivity_tile(spacing), TileShape::Wide));
+        }
 
         if self.show_wifi() {
             tiles.push((
@@ -1310,6 +1393,10 @@ impl Application for App {
                 None => Task::none(),
             },
 
+            Message::ToggleVpnQuick => match self.vpn.toggle_quick() {
+                Some(future) => run(future),
+                None => Task::none(),
+            },
             Message::ToggleVpn(uuid) => match self.vpn.toggle(&uuid) {
                 Some(future) => run(future),
                 None => Task::none(),

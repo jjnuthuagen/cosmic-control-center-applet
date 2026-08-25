@@ -15,6 +15,9 @@ connected = Connected
 connecting = Connecting…
 paired = Paired
 
+# -- Connectivity (Wi-Fi + Bluetooth + VPN grouped tile) ----------------------
+connectivity = Connectivity
+
 # -- Wi-Fi --------------------------------------------------------------------
 wifi = Wi-Fi
 wifi-off = Off

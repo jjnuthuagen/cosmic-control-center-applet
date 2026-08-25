@@ -6,6 +6,10 @@
 # typo shows up as a warning instead of silently doing nothing.
 
 [modules]
+# Group Wi-Fi, Bluetooth and VPN into one wide tile with a switch per row,
+# the way the macOS Control Centre does. Set to false for three separate
+# tiles. Each row still honours its own flag below.
+connectivity = true
 # A control set to false here is never constructed and never connects to its
 # bus. Controls also hide themselves when the hardware or service they need is
 # missing, so a desktop does not need to disable `battery` to avoid an empty

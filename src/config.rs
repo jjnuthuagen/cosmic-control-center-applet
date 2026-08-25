@@ -29,6 +29,13 @@ pub struct Config {
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct Modules {
+    /// The Wi-Fi + Bluetooth + VPN grouped tile.
+    ///
+    /// When on, the three standalone tiles are hidden and their switches
+    /// live inside one Wide tile instead. When off, each is its own Small
+    /// tile as before. Their own flags below still decide whether each row
+    /// appears in the group.
+    pub connectivity: bool,
     pub wifi: bool,
     pub bluetooth: bool,
     pub battery: bool,
@@ -129,6 +136,7 @@ impl Default for Modules {
         // absent. Opting out here is for people who have working hardware but
         // still don't want the tile.
         Self {
+            connectivity: true,
             wifi: true,
             bluetooth: true,
             battery: true,
