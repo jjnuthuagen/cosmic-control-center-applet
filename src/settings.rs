@@ -61,70 +61,67 @@ fn preview_module_key(key: TileKey) -> (&'static str, TileShape) {
     (module, key.default_shape())
 }
 
-/// The picked tile, outlined in the accent so it is unmistakably the one
-/// that will move; everything else passes through untouched.
-fn picked_frame(tile: Element<'_, Message>, picked: bool) -> Element<'_, Message> {
-    if !picked {
+/// A preview tile dressed for its state.
+///
+/// Three states, and they have to stay visually distinct:
+///
+/// * **Selected** — drawn plainly. It is in the grid; nothing to say.
+/// * **Not selected** — dimmed behind a dashed outline. Dimming rather than
+///   removal, because a tile that vanishes when switched off leaves nowhere
+///   to switch it back on. Dashed rather than accented, because the accent
+///   already means "this control is on" inside the tile itself, and reusing
+///   it here would make a switched-off Wi-Fi tile and an excluded one look
+///   the same.
+/// * **Being dragged** — a solid accent outline, so the tile the grid is
+///   shuffling around is unmistakable.
+fn preview_frame(
+    tile: Element<'_, Message>,
+    selected: bool,
+    dragging: bool,
+) -> Element<'_, Message> {
+    if dragging {
+        return container(tile)
+            .class(cosmic::theme::Container::Custom(Box::new(|theme| {
+                let cosmic = theme.cosmic();
+                cosmic::widget::container::Style {
+                    border: cosmic::iced::Border {
+                        radius: cosmic.corner_radii.radius_s.into(),
+                        width: 2.0,
+                        color: cosmic.accent_color().into(),
+                    },
+                    ..Default::default()
+                }
+            })))
+            .into();
+    }
+    if selected {
         return tile;
     }
+
+    // iced has no opacity on an arbitrary element, so "dimmed" is a wash of
+    // the background colour laid over the tile by the container's own
+    // background — the tile keeps its colours, the wash mutes them.
     container(tile)
         .class(cosmic::theme::Container::Custom(Box::new(|theme| {
             let cosmic = theme.cosmic();
+            let mut wash = cosmic.bg_color();
+            wash.alpha = 0.55;
             cosmic::widget::container::Style {
+                background: Some(cosmic::iced::Background::Color(cosmic::iced::Color::from(
+                    wash,
+                ))),
                 border: cosmic::iced::Border {
                     radius: cosmic.corner_radii.radius_s.into(),
-                    width: 2.0,
-                    color: cosmic.accent_color().into(),
+                    width: 1.0,
+                    color: cosmic::iced::Color::from({
+                        let mut edge = cosmic.on_bg_color();
+                        edge.alpha = 0.25;
+                        edge
+                    }),
                 },
                 ..Default::default()
             }
         })))
-        .into()
-}
-
-/// A COSMIC toggler's height. libcosmic exposes no way to ask, so it is
-/// written down — if the preview's columns drift out of line, this is the
-/// number that stopped matching.
-const SWITCH_HEIGHT: f32 = 24.0;
-
-/// One preview cell: a tile plus the switch beneath it.
-fn preview_cell_height(spacing: Spacing) -> f32 {
-    crate::ui::tile_height(spacing) + f32::from(spacing.gap) / 2.0 + SWITCH_HEIGHT
-}
-
-/// A Tall preview cell — two cells and the gap between them.
-///
-/// Not the popup's Tall height: there, a cell is just a tile. Here every cell
-/// carries a switch, so a tile spanning two rows has to span two switches too,
-/// or its column ends short and the grid looks ragged.
-fn preview_tall_height(spacing: Spacing) -> f32 {
-    preview_cell_height(spacing) * 2.0 + f32::from(spacing.gap)
-        - f32::from(spacing.gap) / 2.0
-        - SWITCH_HEIGHT
-}
-
-/// A preview tile with its module switch beneath it.
-///
-/// The switch sits under the tile rather than on it: a toggler drawn over a
-/// button steals the button's press, and the tile is already a button. Under
-/// it, in a row of its own, both stay reachable.
-fn with_switch<'a>(
-    tile: Element<'a, Message>,
-    module_key: &'static str,
-    enabled: bool,
-    spacing: u16,
-) -> Element<'a, Message> {
-    column::with_capacity(2)
-        .spacing(spacing / 2)
-        .push(tile)
-        .push(
-            row::with_capacity(2)
-                .push(cosmic::widget::Space::new().width(Length::Fill))
-                .push(
-                    toggler(enabled)
-                        .on_toggle(move |value| Message::ToggleModule(module_key, value)),
-                ),
-        )
         .into()
 }
 
@@ -247,8 +244,15 @@ pub struct Settings {
     error: Option<String>,
     /// The tab bar's model, which owns which tab is showing.
     tabs: segmented_button::SingleSelectModel,
-    /// A tile picked up for moving, if one is. See [`Message::PickTile`].
-    picked: Option<TileKey>,
+    /// The tile the pointer went down on, if the button is still held.
+    ///
+    /// A press is only a *candidate* for either gesture. It becomes a drag the
+    /// moment the pointer enters a different tile, and a tap otherwise — which
+    /// is how one pointer button carries both selecting and reordering without
+    /// a modifier key.
+    pressed: Option<TileKey>,
+    /// Whether the held press has turned into a drag.
+    dragging: bool,
     /// The order being edited while a tile is picked. Committed to config on
     /// drop, discarded on cancel — so a cancelled move leaves the file as it
     /// was rather than half-applied.
@@ -264,17 +268,18 @@ pub enum Message {
     /// Preview tiles need a press handler to render as buttons; nothing
     /// happens on press, because there is no module behind them here.
     Noop,
-    /// Tap on a preview tile. Three things it can mean, decided in `update`:
-    /// nothing picked → pick this one; this one picked → cancel; another
-    /// picked → drop it here and save.
-    PickTile(TileKey),
-    /// The pointer entered a preview tile. While something is picked, the
-    /// picked tile moves to this tile's slot in the working order and the
+    /// Pointer down on a preview tile. Not yet a decision — see
+    /// [`Settings::pressed`].
+    PressTile(TileKey),
+    /// The pointer entered a preview tile while a press is held. Turns the
+    /// press into a drag and moves the held tile to this one's slot, so the
     /// grid re-packs around it — that live shuffle is the placement cue.
     HoverTile(TileKey),
+    /// Pointer up. A drag commits the new order; a plain press selects or
+    /// deselects the tile that was pressed.
+    ReleaseTile,
     /// Another `--settings` invocation asked this window to come forward.
     Present,
-    ToggleModule(&'static str, bool),
     ToggleCustom(usize, bool),
     OpenConfigFolder,
     /// Ask the desktop's file chooser for an image.
@@ -380,17 +385,17 @@ impl Settings {
             let (module_key, shape) = preview_module_key(key);
             let enabled = self.module_enabled(module_key);
             let tile = self.preview_tile(key, enabled, theme_spacing);
-            let tile = picked_frame(tile, self.picked == Some(key));
-            // Tap picks or drops; entering while something is picked moves it
-            // here. `mouse_area` rather than the tile's own button so the tile
-            // stays a plain preview and the pick lives in one place.
+            let dragging = self.dragging && self.pressed == Some(key);
+            let tile = preview_frame(tile, enabled, dragging);
+            // One pointer button, two gestures: a press that never leaves the
+            // tile is a tap and selects it; a press that wanders into another
+            // tile is a drag and reorders. `mouse_area` rather than the tile's
+            // own button so both live in one place.
             let tile = cosmic::widget::mouse_area(tile)
-                .on_press(Message::PickTile(key))
-                .on_enter(Message::HoverTile(key));
-            tiles.push((
-                with_switch(tile.into(), module_key, enabled, spacing),
-                shape,
-            ));
+                .on_press(Message::PressTile(key))
+                .on_enter(Message::HoverTile(key))
+                .on_release(Message::ReleaseTile);
+            tiles.push((tile.into(), shape));
         }
 
         section = section.push(tile_grid(tiles, theme_spacing));
@@ -412,7 +417,7 @@ impl Settings {
     /// in the complete list and be written back complete.
     fn full_order(&self) -> Vec<TileKey> {
         // Mid-move, the order being edited is the one to use.
-        if self.picked.is_some() && !self.working_order.is_empty() {
+        if self.pressed.is_some() && !self.working_order.is_empty() {
             return self.working_order.clone();
         }
         crate::tile_layout::resolve_order(&self.config.appearance.order, |_| true)
@@ -463,7 +468,9 @@ impl Settings {
                     on_press: Message::Noop,
                 })
                 .collect();
-                connectivity_tile(rows, preview_tall_height(spacing), spacing)
+                // The popup's own Tall height: with the switch rows gone, a
+                // preview cell is exactly a tile again.
+                connectivity_tile(rows, crate::ui::tall_height(spacing), spacing)
             }
             TileKey::Volume => wide_slider_tile(
                 icons::volume(60.0, false),
@@ -743,7 +750,8 @@ impl Application for Settings {
             error: None,
             tabs,
             about,
-            picked: None,
+            pressed: None,
+            dragging: false,
             working_order: Vec::new(),
         };
 
@@ -766,34 +774,38 @@ impl Application for Settings {
 
     fn update(&mut self, message: Message) -> Task<Message> {
         match message {
-            Message::ToggleModule(key, value) => {
-                self.set_module(key, value);
-                self.save();
-            }
             Message::Tab(entity) => self.tabs.activate(entity),
             Message::Noop => {}
-            Message::PickTile(key) => match self.picked {
-                None => {
-                    // The *full* order, not the drawn subset — see `full_order`.
-                    self.working_order = self.full_order();
-                    self.picked = Some(key);
-                }
-                Some(picked) if picked == key => {
-                    // Tapping the picked tile again puts it down where it was.
-                    self.picked = None;
+            Message::PressTile(key) => {
+                // The *full* order, not the drawn subset — see `full_order`.
+                self.working_order = self.full_order();
+                self.pressed = Some(key);
+                self.dragging = false;
+            }
+            Message::ReleaseTile => {
+                let Some(key) = self.pressed.take() else {
+                    // A release with no press behind it: the press began
+                    // somewhere else, or was already resolved.
+                    return Task::none();
+                };
+                if self.dragging {
+                    self.config.appearance.order = std::mem::take(&mut self.working_order);
+                } else {
+                    // A plain press selects or deselects.
+                    let module = preview_module_key(key).0;
+                    let enabled = self.module_enabled(module);
+                    self.set_module(module, !enabled);
                     self.working_order.clear();
                 }
-                Some(_) => {
-                    // Drop. The hover already moved it into this slot; all
-                    // that is left is to make the working order the real one.
-                    self.config.appearance.order = std::mem::take(&mut self.working_order);
-                    self.picked = None;
-                    self.save();
-                }
-            },
+                self.dragging = false;
+                self.save();
+            }
             Message::HoverTile(over) => {
-                if let Some(picked) = self.picked {
+                if let Some(picked) = self.pressed {
                     if picked != over {
+                        // Entering a different tile is what makes this a drag
+                        // rather than a tap.
+                        self.dragging = true;
                         let order = &mut self.working_order;
                         if let (Some(from), Some(to)) = (
                             order.iter().position(|&k| k == picked),
