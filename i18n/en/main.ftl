@@ -62,8 +62,8 @@ profile-balanced = Balanced
 profile-performance = Performance
 performance-degraded = Performance limited: { $reason }
 game-mode = Game Mode
-game-mode-detail = Feral GameMode — stacks with the profile above
-game-mode-held = Held on by a running game
+game-mode-detail = Tunes the system for smoother gaming.
+game-mode-held = A game is using this right now.
 
 # -- DNS ----------------------------------------------------------------------
 dns = DNS
@@ -74,7 +74,7 @@ dns-quad9 = Quad9
 dns-custom = Custom
 dns-manual-placeholder = 1.1.1.1, 1.0.0.1
 dns-on-connection = On { $connection }
-dns-needs-authorisation = This connection is managed system-wide, so changing its DNS needs an administrator password.
+dns-needs-authorisation = Changing DNS on this connection needs an administrator password.
 dns-failed = Could not change DNS: { $reason }
 
 # -- Sliders ------------------------------------------------------------------
@@ -109,37 +109,53 @@ vpn-add-in-settings = Add or edit VPN connections in Settings.
 # -- Other toggles ------------------------------------------------------------
 do-not-disturb = Do Not Disturb
 keep-awake = Keep Awake
-keep-awake-held = Held by { $who }
+keep-awake-held = Kept awake by { $who }
 charge-limit = Limit charging
-charge-limit-detail = Stop charging before full to reduce battery wear.
+charge-limit-detail = Stops charging before full, to make the battery last longer.
 
 # -- Settings window ----------------------------------------------------------
 settings = Settings
 close = Close
 
-settings-controls = Controls
-settings-controls-detail = Choose which controls appear in the popup. A control switched off here is never started and never connects to anything. Controls also hide themselves when the hardware or service they need is missing, so switching one on does not guarantee a tile.
+tab-tiles = Tiles
+tab-styling = Styling
+tab-about = About
+settings-window-title = Control Center Settings
 
-settings-custom-detail = Tiles you added yourself, from the [[custom]] entries in config.toml.
+settings-controls = Controls
+settings-controls-detail = Choose what appears in the popup. Some controls only show up if your machine has the hardware for them.
+
+settings-custom = Your tiles
+settings-custom-detail = Tiles that run a command of your choosing — a screenshot, a script, anything. Add them to config.toml; the file explains each option and has an example to copy.
 
 settings-style = Tile style
 settings-style-detail = How strongly a tile shows that its control is on.
 style-high = High contrast
 style-high-detail = The whole tile fills with the accent colour when the control is on.
 style-medium = Medium contrast
-style-medium-detail = The tile stays neutral and the icon sits on a shape that takes the accent colour.
+style-medium-detail = Only the icon lights up when the control is on.
 style-low = Low contrast
-style-low-detail = Tiles never look selected. You see what is chosen only after opening a control, the way the battery tile already works.
+style-low-detail = Tiles never look switched on. You see what is on after opening it.
 
 settings-icon = Panel icon
 settings-icon-detail = What the button on the panel shows.
 icon-system = System default
+icon-custom = Your own
 icon-custom-placeholder = Icon name, or a path to an image
+icon-select = Select…
+icon-choose-title = Choose a panel icon
+icon-copied-detail = A picked image is copied into the applet's own folder, so it keeps working if you move or delete the original.
 icon-preview = Preview
 preset-sliders = Sliders
 preset-toggles = Switches
 preset-dials = Faders
 preset-grid = Tiles
+
+open-config-folder = Open config folder
+about-author = jjnuthuagen
+about-comments = For COSMIC. Made in Norway with love.
+about-source = Source code
+about-issues = Report a problem
 
 settings-saved = Changes are saved as you make them.
 settings-save-failed = Could not save: { $reason }

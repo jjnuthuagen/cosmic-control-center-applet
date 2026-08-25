@@ -12,6 +12,7 @@ mod i18n;
 mod modules;
 mod process;
 mod settings;
+mod single_instance;
 mod ui;
 
 fn main() -> cosmic::iced::Result {
@@ -44,6 +45,12 @@ fn main() -> cosmic::iced::Result {
     // `--settings` runs the same binary as an ordinary window instead of an
     // applet. The panel button spawns this on right-click.
     if std::env::args().skip(1).any(|arg| arg == "--settings") {
+        // Right-clicking the panel button spawns this every time, so the second
+        // and later invocations bow out after asking the open window to come
+        // forward. Without it, ten right-clicks leave ten windows.
+        if single_instance::claim() == single_instance::Claim::AlreadyOpen {
+            return Ok(());
+        }
         return cosmic::app::run::<settings::Settings>(settings::window_settings(), ());
     }
 

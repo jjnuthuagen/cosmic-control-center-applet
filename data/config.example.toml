@@ -35,10 +35,14 @@ charge_threshold   = true   # hides itself unless the hardware supports it
 #              opening a control, the way the battery tile already works
 style = "high"
 
-# What the panel button shows. Omit for the system default.
+# What the panel button shows. Omitted, it is the "toggles" preset below.
+#
 #   [appearance.icon]
 #   kind = "preset"          # sliders | toggles | dials | grid
 #   value = "sliders"
+#
+#   [appearance.icon]
+#   kind = "system"          # whatever your icon theme uses for settings
 #
 #   [appearance.icon]
 #   kind = "custom"          # an icon-theme name, or an absolute path
@@ -52,15 +56,47 @@ custom_providers = [
     # ["NextDNS", "45.90.28.0", "45.90.30.0"],
 ]
 
-# Tiles of your own, added after everything built in.
+# ---------------------------------------------------------------------------
+# Your own tiles
+# ---------------------------------------------------------------------------
+#
+# A tile that runs a command: a screenshot, a script, a VPN toggle — anything
+# you would otherwise open a terminal for. They appear after everything built
+# in, so adding one never moves the controls you are used to.
+#
+# Copy the block below, uncomment it, and change the values. Add as many
+# [[custom]] blocks as you like.
+#
+# Every option:
+#
+#   name      required  Shown on the tile.
+#   command   required  The program and its arguments, as a list.
+#   icon      optional  An icon name from your theme, or a path to an image.
+#                       Defaults to a generic "runs a program" icon. If the
+#                       name is not in your theme it falls back rather than
+#                       drawing nothing.
+#   detail    optional  A second line under the name. Defaults to the name.
+#   enabled   optional  false hides the tile without deleting it. Defaults to
+#                       true. The Settings window writes this when you use the
+#                       switch under "Your tiles".
 #
 # `command` is a list, not a string, and runs directly rather than through a
-# shell — so an argument containing spaces stays one argument and nothing is
-# glob-expanded behind your back. If you want a pipeline, ask for one
-# explicitly: command = ["sh", "-c", "foo | bar"].
+# shell — so an argument containing spaces stays one argument, and nothing is
+# glob-expanded behind your back. If you want a pipeline, ask for one:
+#
+#   command = ["sh", "-c", "grim - | wl-copy"]
+#
+# A filled-out example:
 #
 # [[custom]]
 # name = "Screenshot"
-# icon = "camera-photo-symbolic"     # optional; falls back if your theme lacks it
 # command = ["cosmic-screenshot", "--interactive=true"]
-# detail = "Select a region"         # optional second line
+# icon = "camera-photo-symbolic"
+# detail = "Select a region"
+# enabled = true
+#
+# The shortest one that works — everything else has a default:
+#
+# [[custom]]
+# name = "Lock"
+# command = ["loginctl", "lock-session"]

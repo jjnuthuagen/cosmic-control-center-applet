@@ -1,0 +1,14 @@
+[Desktop Entry]
+Name=Control Center Settings
+Comment=Choose what appears in the Control Center applet
+Exec=cosmic-control-center-applet --settings
+Icon=io.github.jjnuthuagen.ControlCenter
+Terminal=false
+Type=Application
+# Reached by right-clicking the panel button. It exists as a desktop entry so
+# the window has an icon at all: COSMIC resolves a toplevel's icon by matching
+# its app id to a desktop file, and without one the window falls back to a
+# generic cog in the switcher and the dock.
+NoDisplay=true
+Categories=COSMIC;Settings;
+StartupWMClass=io.github.jjnuthuagen.ControlCenterSettings

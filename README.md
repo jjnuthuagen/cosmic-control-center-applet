@@ -71,6 +71,42 @@ percentage hides itself while the power-profile switch stays, since
 power-profiles-daemon works fine without a battery. Turn a module off only when
 the hardware works and you still don't want the tile.
 
+## Your own tiles
+
+Any command can become a tile — a screenshot, a script, a VPN toggle. Add a
+`[[custom]]` block to `config.toml`:
+
+```toml
+[[custom]]
+name = "Screenshot"
+command = ["cosmic-screenshot", "--interactive=true"]
+icon = "camera-photo-symbolic"     # optional
+detail = "Select a region"         # optional second line
+enabled = true                     # optional; false hides it without deleting it
+```
+
+Only `name` and `command` are required, so the shortest useful tile is two
+lines:
+
+```toml
+[[custom]]
+name = "Lock"
+command = ["loginctl", "lock-session"]
+```
+
+`command` is a list rather than a string, and runs directly instead of through
+a shell. An argument containing spaces stays one argument and nothing is
+glob-expanded behind your back. If you want a pipeline, ask for one:
+
+```toml
+command = ["sh", "-c", "grim - | wl-copy"]
+```
+
+Right-click the panel button and open Settings to find these under **Your
+tiles**, each with a switch, and a button that opens the folder holding
+`config.toml`. The shipped [`config.example.toml`](data/config.example.toml)
+documents every option with examples to copy.
+
 ## Building
 
 Requires a Rust toolchain and the COSMIC/libcosmic build dependencies.

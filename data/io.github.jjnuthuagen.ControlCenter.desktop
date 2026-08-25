@@ -2,7 +2,7 @@
 Name=Control Center
 Comment=Wi-Fi, Bluetooth, power profiles, DNS, volume and brightness
 Exec=cosmic-control-center-applet
-Icon=preferences-system-symbolic
+Icon=io.github.jjnuthuagen.ControlCenter
 Terminal=false
 Type=Application
 # Applets are launched by cosmic-panel, not from the app grid.

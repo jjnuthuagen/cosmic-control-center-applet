@@ -1,0 +1,38 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  The application icon: the same two switches as the symbolic panel glyph, set
+  on a rounded square.
+
+  Why a separate file rather than reusing the symbolic one. A `-symbolic` icon
+  is a single-colour stencil that the toolkit recolours to match the text around
+  it. That is right for a panel button and wrong for a window: an app icon sits
+  in the titlebar, the switcher and the dock next to full-colour icons, and a
+  bare stencil there reads as a missing icon rather than a deliberate one.
+
+  Drawn at 128 with a 24-unit corner radius, matching the squircle proportions
+  COSMIC's own app icons use, so it does not sit oddly beside them.
+-->
+<svg xmlns="http://www.w3.org/2000/svg" width="128" height="128" viewBox="0 0 128 128">
+  <defs>
+    <linearGradient id="ground" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#4a5b78"/>
+      <stop offset="1" stop-color="#2b3648"/>
+    </linearGradient>
+  </defs>
+
+  <rect x="0" y="0" width="128" height="128" rx="24" ry="24" fill="url(#ground)"/>
+
+  <!--
+    The switches, scaled from the 16-unit glyph by 6 and centred: the original
+    art occupies 1.5..14.5 of 16, so a plain 8x scale would touch the edges.
+  -->
+  <g transform="translate(16 16) scale(6)">
+    <!-- Upper switch, on: the knob takes the accent, the track is light. -->
+    <path d="M4.5 1.5h7a3 3 0 0 1 0 6h-7a3 3 0 0 1 0-6z" fill="#7aa2d2"/>
+    <circle cx="11.5" cy="4.5" r="1.5" fill="#ffffff"/>
+
+    <!-- Lower switch, off: track dimmed, knob at the other end. -->
+    <path d="M4.5 8.5h7a3 3 0 0 1 0 6h-7a3 3 0 0 1 0-6z" fill="#ffffff" fill-opacity="0.35"/>
+    <circle cx="4.5" cy="11.5" r="1.5" fill="#ffffff"/>
+  </g>
+</svg>

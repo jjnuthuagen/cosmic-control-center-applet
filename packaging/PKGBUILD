@@ -1,6 +1,6 @@
 # Maintainer: jjnuthuagen <246846236+jjnuthuagen@users.noreply.github.com>
 pkgname=cosmic-control-center-applet
-pkgver=0.1.2
+pkgver=0.1.3
 pkgrel=1
 pkgdesc="A COSMIC panel applet for Wi-Fi, Bluetooth, power profiles, DNS, volume and brightness"
 arch=('x86_64' 'aarch64')
@@ -56,6 +56,11 @@ package() {
     install -Dm0644 \
         "data/io.github.jjnuthuagen.ControlCenter.desktop" \
         "$pkgdir/usr/share/applications/io.github.jjnuthuagen.ControlCenter.desktop"
+    # The Settings window is a separate toplevel with its own app id; COSMIC
+    # resolves a window's icon through the desktop file matching that id.
+    install -Dm0644 \
+        "data/io.github.jjnuthuagen.ControlCenterSettings.desktop" \
+        "$pkgdir/usr/share/applications/io.github.jjnuthuagen.ControlCenterSettings.desktop"
 
     # hicolor so the preset panel icons resolve under any icon theme.
     install -Dm0644 -t "$pkgdir/usr/share/icons/hicolor/scalable/apps" data/icons/*.svg

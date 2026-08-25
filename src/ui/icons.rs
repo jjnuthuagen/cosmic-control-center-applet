@@ -371,14 +371,21 @@ fn band(strength: u8) -> Band {
 
 /// Window tiling, by whether the current workspace is tiled or floating.
 pub fn tiling(tiled: bool) -> &'static str {
+    // COSMIC's own tiling applet ships a matched pair, `.On` and `.Off`, and
+    // using them means the tile reads the same as the tiling button already on
+    // the panel. They are plain app icons rather than the `-symbolic` family,
+    // which is why the names look unlike everything else here.
     if tiled {
         resolve(&[
+            "com.system76.CosmicAppletTiling.On",
+            "com.system76.CosmicAppletTiling-symbolic",
             "view-grid-symbolic",
             "view-app-grid-symbolic",
             "view-dual-symbolic",
         ])
     } else {
         resolve(&[
+            "com.system76.CosmicAppletTiling.Off",
             "view-restore-symbolic",
             "focus-windows-symbolic",
             "window-restore-symbolic",
@@ -656,6 +663,44 @@ pub fn resolve_owned(name: &str) -> String {
         "application-x-executable-symbolic",
         "system-run-symbolic",
         "preferences-system-symbolic",
+    ])
+    .to_string()
+}
+
+/// The icon for a media player, from whatever it tells us about itself.
+///
+/// Tried in order of how well each identifies the app. `DesktopEntry` is the
+/// property MPRIS provides for this and is the only one guaranteed to name an
+/// installed `.desktop` file — but it is optional, and Chromium (among others)
+/// does not publish it, so the bus name and `Identity` follow as guesses that
+/// happen to be right for most players. Anything unrecognised gets a generic
+/// media glyph rather than a blank space.
+pub fn media_player(desktop_entry: Option<&str>, bus_suffix: &str, identity: &str) -> String {
+    let candidates = [
+        desktop_entry.unwrap_or_default().to_string(),
+        bus_suffix.to_ascii_lowercase(),
+        identity.to_ascii_lowercase(),
+        // Spaces are not legal in icon names and some players have them:
+        // "Firefox Nightly" is shipped as `firefox-nightly`.
+        identity.to_ascii_lowercase().replace(' ', "-"),
+    ];
+
+    for candidate in candidates {
+        if candidate.is_empty() {
+            continue;
+        }
+        if cosmic::widget::icon::from_name(candidate.clone())
+            .path()
+            .is_some()
+        {
+            return candidate;
+        }
+    }
+
+    resolve(&[
+        "multimedia-player-symbolic",
+        "audio-x-generic-symbolic",
+        "media-playback-start-symbolic",
     ])
     .to_string()
 }

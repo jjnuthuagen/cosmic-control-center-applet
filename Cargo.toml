@@ -1,6 +1,6 @@
 [package]
 name = "cosmic-control-center-applet"
-version = "0.1.2"
+version = "0.1.3"
 edition = "2021"
 description = "A COSMIC panel applet for Wi-Fi, Bluetooth, power profiles, DNS, volume and brightness"
 license = "MIT OR Apache-2.0"
@@ -18,6 +18,11 @@ libcosmic = { git = "https://github.com/pop-os/libcosmic", rev = "ef490df50b0a05
     "wayland",
     "multi-window",
     "winit",
+    # The Select button in Settings opens the desktop's own file chooser
+    # through the portal, rather than shipping a file browser of our own.
+    "xdg-portal",
+    # The About tab, laid out the way every other COSMIC about page is.
+    "about",
 ] }
 
 zbus = { version = "5", default-features = false, features = ["tokio"] }

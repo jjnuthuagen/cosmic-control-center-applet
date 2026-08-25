@@ -38,6 +38,14 @@ const POPUP_MAX_HEIGHT: f32 = 720.0;
 /// top, since it sorts connected-and-paired first.
 const MAX_LIST_ROWS: usize = 12;
 
+/// How many characters of the media title are visible at once.
+///
+/// Fixed rather than measured: it is what keeps the transport buttons in the
+/// same place regardless of what is playing. Sized for the caption font in the
+/// space left by the player icon and the three buttons, so the row holds its
+/// shape whatever is playing.
+const MEDIA_TITLE_CHARS: usize = 30;
+
 /// Networks shown before "Show more".
 ///
 /// A busy building can see thirty access points, and all but a handful are
@@ -495,13 +503,34 @@ impl App {
     /// A row rather than a tile: the track name needs the full width, and three
     /// buttons will not fit in half of one.
     fn media_row(&self, spacing: crate::ui::Spacing) -> Element<'_, Message> {
-        row::with_capacity(4)
+        row::with_capacity(5)
             .align_y(Alignment::Center)
             .spacing(spacing.gap)
+            // Whose media this is. A row that says only "Everything In Its
+            // Right Place" does not tell you which of three open players will
+            // answer the next button press.
             .push(
-                text::body(self.media.summary())
+                cosmic::widget::icon::from_name(self.media.icon.clone()).size(crate::ui::ICON_SIZE),
+            )
+            .push(
+                column::with_capacity(2)
                     .width(Length::Fill)
-                    .wrapping(cosmic::iced::widget::text::Wrapping::None),
+                    // The player named on top, the track under it. The player's
+                    // name is short and fixed and never needs to move; the track
+                    // is neither.
+                    .push(
+                        text::body(self.media.player_name.clone())
+                            .wrapping(cosmic::iced::widget::text::Wrapping::None),
+                    )
+                    .push(
+                        // `Fill` so the buttons keep their place, `Wrapping::None`
+                        // so a long title cannot push the row taller, and the
+                        // marquee so what will not fit still gets read. All three
+                        // are needed: any one alone clips, wraps or overflows.
+                        text::caption(self.media.marquee(MEDIA_TITLE_CHARS))
+                            .width(Length::Fill)
+                            .wrapping(cosmic::iced::widget::text::Wrapping::None),
+                    ),
             )
             .push(
                 button::icon(
@@ -1404,7 +1433,11 @@ impl Application for App {
             subscriptions.push(self.keyboard.subscription().map(Message::Keyboard));
         }
         if self.config.modules.media && open {
-            subscriptions.push(self.media.subscription().map(Message::Media));
+            subscriptions.push(
+                self.media
+                    .subscription(MEDIA_TITLE_CHARS)
+                    .map(Message::Media),
+            );
         }
         if self.config.modules.keep_awake && open {
             subscriptions.push(self.caffeine.subscription().map(Message::Caffeine));

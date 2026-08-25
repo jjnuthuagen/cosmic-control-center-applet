@@ -89,17 +89,30 @@ impl TileStyle {
     }
 }
 
+/// The preset shown on a fresh install.
+///
+/// A shipped glyph rather than the system default, because the system default
+/// is `preferences-system-symbolic` — the same cog several other things use, so
+/// a new install puts an unrecognisable button on the panel. This one is drawn
+/// for this applet and reads as "controls" at panel size.
+pub const DEFAULT_PRESET: &str = "toggles";
+
 /// What the panel button shows.
-#[derive(Debug, Clone, Default, PartialEq, Eq, Deserialize, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(tag = "kind", content = "value", rename_all = "lowercase")]
 pub enum PanelIcon {
     /// Whatever the icon theme gives for the default name.
-    #[default]
     System,
     /// One of the glyphs shipped in `data/icons`.
     Preset(String),
     /// An icon-theme name or an absolute path to an image the user supplied.
     Custom(String),
+}
+
+impl Default for PanelIcon {
+    fn default() -> Self {
+        PanelIcon::Preset(DEFAULT_PRESET.to_string())
+    }
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Deserialize, Serialize)]
@@ -264,6 +277,36 @@ mod tests {
     }
 
     #[test]
+    fn the_default_panel_icon_is_a_shipped_glyph_not_the_system_cog() {
+        // The system default is `preferences-system-symbolic`, which several
+        // other things also use — a fresh install would put an anonymous cog on
+        // the panel.
+        assert_eq!(
+            Config::default().appearance.icon,
+            PanelIcon::Preset(DEFAULT_PRESET.to_string())
+        );
+        // And the preset named here has to be one that actually ships.
+        assert!(crate::ui::icons::PRESETS
+            .iter()
+            .any(|(name, _)| *name == DEFAULT_PRESET));
+    }
+
+    #[test]
+    fn choosing_the_system_icon_is_still_possible() {
+        // It stopped being the default; it must not stop being an option.
+        let chosen = Config {
+            appearance: Appearance {
+                icon: PanelIcon::System,
+                ..Appearance::default()
+            },
+            ..Config::default()
+        };
+        let encoded = toml::to_string_pretty(&chosen).unwrap();
+        let decoded: Config = toml::from_str(&encoded).unwrap();
+        assert_eq!(decoded.appearance.icon, PanelIcon::System);
+    }
+
+    #[test]
     fn an_older_config_without_the_appearance_section_still_loads() {
         // Anyone who wrote a config.toml before this section existed must not
         // have it rejected by deny_unknown_fields' stricter cousin, a missing
@@ -277,7 +320,7 @@ bluetooth = false
         assert!(decoded.modules.wifi);
         assert!(!decoded.modules.bluetooth);
         assert_eq!(decoded.appearance.style, TileStyle::High);
-        assert_eq!(decoded.appearance.icon, PanelIcon::System);
+        assert_eq!(decoded.appearance.icon, PanelIcon::default());
     }
 
     #[test]

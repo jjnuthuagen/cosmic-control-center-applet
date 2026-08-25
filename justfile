@@ -10,6 +10,13 @@ desktop := appid + '.desktop'
 desktop-src := 'data' / desktop
 desktop-dst := prefix / 'share' / 'applications' / desktop
 
+# The Settings window is a second toplevel with its own app id, and COSMIC finds
+# a window's icon by matching that id to a desktop file. Without this entry the
+# window falls back to a generic cog.
+settings-desktop := appid + 'Settings.desktop'
+settings-desktop-src := 'data' / settings-desktop
+settings-desktop-dst := prefix / 'share' / 'applications' / settings-desktop
+
 _default:
     @just --list
 
@@ -35,13 +42,14 @@ icons-dst := prefix / 'share' / 'icons' / 'hicolor' / 'scalable' / 'apps'
 install: build
     install -Dm0755 {{bin-src}} {{bin-dst}}
     install -Dm0644 {{desktop-src}} {{desktop-dst}}
+    install -Dm0644 {{settings-desktop-src}} {{settings-desktop-dst}}
     # hicolor is in every icon theme's inheritance chain, so presets installed
     # here resolve whatever theme the user is on.
     install -Dm0644 -t {{icons-dst}} data/icons/*.svg
     @echo "Installed. Add it in Settings -> Desktop -> Panel -> Configure applets."
 
 uninstall:
-    rm -f {{bin-dst}} {{desktop-dst}}
+    rm -f {{bin-dst}} {{desktop-dst}} {{settings-desktop-dst}}
     rm -f {{icons-dst}}/cosmic-control-center-*.svg
 
 # Applets expect to be launched by cosmic-panel as a layer-shell surface, so
