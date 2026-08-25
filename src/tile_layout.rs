@@ -345,18 +345,22 @@ pub fn pack(shapes: &[TileShape], columns: u16) -> Pack {
             continue;
         }
 
-        // Find the earliest position that fits.
-        let (col, row) = 'find: loop {
-            let start_row = 0;
-            for row in start_row.. {
+        // Find the earliest position that fits: smallest row, then smallest
+        // column within it. Terminates because the grid grows a fresh empty
+        // row each pass, and a shape narrow enough for the grid always fits an
+        // empty row — the `width > columns` guard above rules out the rest.
+        let (col, row) = {
+            let mut row = 0usize;
+            loop {
                 ensure_row(&mut occupied, row + height as usize - 1);
-                for col in 0..=(columns - width) as usize {
-                    let fits = (0..width as usize)
-                        .all(|dc| (0..height as usize).all(|dr| !occupied[row + dr][col + dc]));
-                    if fits {
-                        break 'find (col as u16, row as u16);
-                    }
+                let free = (0..=(columns - width) as usize).find(|&col| {
+                    (0..width as usize)
+                        .all(|dc| (0..height as usize).all(|dr| !occupied[row + dr][col + dc]))
+                });
+                if let Some(col) = free {
+                    break (col as u16, row as u16);
                 }
+                row += 1;
             }
         };
 
