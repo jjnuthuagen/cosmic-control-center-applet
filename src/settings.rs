@@ -343,12 +343,16 @@ impl Settings {
         } else {
             order.extend([TileKey::Wifi, TileKey::Bluetooth, TileKey::Vpn]);
         }
-        order.extend(
-            DEFAULT_ORDER
-                .iter()
-                .copied()
-                .filter(|k| !k.is_connectivity_group()),
-        );
+        // Game Mode and the charge limit live inside the Battery page, and
+        // Media is a full-width row under the grid. None of the three is a
+        // grid tile, so none belongs in a preview of the grid.
+        order.extend(DEFAULT_ORDER.iter().copied().filter(|k| {
+            !k.is_connectivity_group()
+                && !matches!(
+                    k,
+                    TileKey::GameMode | TileKey::Media | TileKey::ChargeThreshold
+                )
+        }));
         order
     }
 

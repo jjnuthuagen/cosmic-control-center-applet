@@ -59,6 +59,14 @@ pub struct Modules {
 pub struct Appearance {
     pub style: TileStyle,
     pub icon: PanelIcon,
+    /// The order tiles are drawn in. Empty means the default order.
+    ///
+    /// Reconciled through [`crate::tile_layout::resolve_order`]: duplicates
+    /// dropped first-wins, tiles missing from the list appended in default
+    /// order so a config predating a tile still draws it, unknown names
+    /// rejected at parse time by `deny_unknown_fields` on the enum.
+    #[serde(default)]
+    pub order: Vec<crate::tile_layout::TileKey>,
 }
 
 /// How strongly a tile signals that its control is on.
@@ -261,6 +269,7 @@ mod tests {
                     appearance: Appearance {
                         style,
                         icon: icon.clone(),
+                        ..Appearance::default()
                     },
                     ..Config::default()
                 };
@@ -312,6 +321,29 @@ mod tests {
         let encoded = toml::to_string_pretty(&chosen).unwrap();
         let decoded: Config = toml::from_str(&encoded).unwrap();
         assert_eq!(decoded.appearance.icon, PanelIcon::System);
+    }
+
+    #[test]
+    fn an_order_round_trips_and_an_empty_one_means_default() {
+        use crate::tile_layout::TileKey;
+        let with_order = Config {
+            appearance: Appearance {
+                order: vec![TileKey::Volume, TileKey::Battery],
+                ..Appearance::default()
+            },
+            ..Config::default()
+        };
+        let encoded = toml::to_string_pretty(&with_order).unwrap();
+        let decoded: Config = toml::from_str(&encoded).unwrap();
+        assert_eq!(
+            decoded.appearance.order,
+            vec![TileKey::Volume, TileKey::Battery]
+        );
+
+        // And a config with no `order` key at all — every config written
+        // before this field existed — parses to the empty list.
+        let older: Config = toml::from_str("[appearance]\nstyle = \"high\"\n").unwrap();
+        assert!(older.appearance.order.is_empty());
     }
 
     #[test]

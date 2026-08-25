@@ -158,8 +158,6 @@ pub const DEFAULT_ORDER: &[TileKey] = &[
 /// the Connectivity group is present. That belongs at the render site, where
 /// the connectivity module's own availability is also considered — a Wi-Fi
 /// row inside a group is worthless on a machine with no Wi-Fi adapter.
-// Wired in by drag-to-reorder (Settings), which persists the order it produces.
-#[allow(dead_code)]
 pub fn resolve_order(stored: &[TileKey], is_enabled: impl Fn(TileKey) -> bool) -> Vec<TileKey> {
     let mut seen = std::collections::HashSet::with_capacity(DEFAULT_ORDER.len());
     let mut order = Vec::with_capacity(DEFAULT_ORDER.len());

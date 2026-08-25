@@ -23,7 +23,7 @@ use crate::modules::{
     battery, bluetooth, brightness, caffeine, custom, dns, gamemode, keyboard, media, network,
     system, tiling, volume, vpn,
 };
-use crate::tile_layout::TileShape;
+use crate::tile_layout::{resolve_order, TileKey, TileShape};
 use crate::ui::{
     connectivity_tile, icons, list_row, page_header, scrollable_page, tall_slider_tile, tile_grid,
     toggle_row, ConnectivityRow, Spacing, Tile,
@@ -357,14 +357,24 @@ impl App {
         // Each entry pairs its element with the footprint the packer
         // should give it: Small unless said otherwise (sliders are Tall,
         // Connectivity — when it lands — is Wide).
-        let mut tiles: Vec<(Element<'_, Message>, TileShape)> = Vec::with_capacity(9);
+        // Built keyed, then emitted in the user's order. `keyed` holds every
+        // tile this machine can show; `resolve_order` decides the sequence and
+        // drops nothing that is here — a key absent from `keyed` is simply a
+        // module this machine has no hardware for.
+        let mut keyed: Vec<(TileKey, Element<'_, Message>, TileShape)> = Vec::with_capacity(16);
+        let mut tiles: Vec<(Element<'_, Message>, TileShape)> = Vec::with_capacity(16);
 
         if self.show_connectivity() {
-            tiles.push((self.connectivity_tile(spacing), TileShape::Wide));
+            keyed.push((
+                TileKey::Connectivity,
+                self.connectivity_tile(spacing),
+                TileShape::Wide,
+            ));
         }
 
         if self.show_wifi() {
-            tiles.push((
+            keyed.push((
+                TileKey::Wifi,
                 Tile::new(wifi_icon(&self.wifi), fl!("wifi"), self.wifi_state_text())
                     .active(self.wifi.enabled && !self.wifi.airplane_mode)
                     .on_press(Message::Navigate(Page::Wifi))
@@ -374,7 +384,8 @@ impl App {
             ));
         }
         if self.show_bluetooth() {
-            tiles.push((
+            keyed.push((
+                TileKey::Bluetooth,
                 Tile::new(
                     icons::bluetooth(self.bluetooth.powered, self.bluetooth.connected_devices),
                     fl!("bluetooth"),
@@ -397,7 +408,8 @@ impl App {
             if self.battery.profiles.is_shown() {
                 tile = tile.on_press(Message::Navigate(Page::Battery));
             }
-            tiles.push((
+            keyed.push((
+                TileKey::Battery,
                 tile.style(self.config.appearance.style).view(spacing),
                 TileShape::Small,
             ));
@@ -407,7 +419,8 @@ impl App {
                 .dns
                 .active()
                 .map_or_else(|| fl!("dns-custom"), provider_label);
-            tiles.push((
+            keyed.push((
+                TileKey::Dns,
                 Tile::new(icons::dns(), fl!("dns"), state)
                     .on_press(Message::Navigate(Page::Dns))
                     .style(self.config.appearance.style)
@@ -421,7 +434,8 @@ impl App {
             } else {
                 fl!("mode-light")
             };
-            tiles.push((
+            keyed.push((
+                TileKey::DarkMode,
                 Tile::new(icons::dark_mode(self.system.dark), fl!("dark-mode"), state)
                     .active(self.system.dark)
                     .on_press(Message::ToggleDark)
@@ -436,7 +450,8 @@ impl App {
             } else {
                 fl!("tiling-off")
             };
-            tiles.push((
+            keyed.push((
+                TileKey::Tiling,
                 Tile::new(icons::tiling(self.tiling.tiled), fl!("tiling"), state)
                     .active(self.tiling.tiled)
                     .on_press(Message::ToggleTiling)
@@ -451,7 +466,8 @@ impl App {
                 .vpn
                 .active_name()
                 .map_or_else(|| fl!("vpn-off"), str::to_string);
-            tiles.push((
+            keyed.push((
+                TileKey::Vpn,
                 Tile::new(
                     icons::vpn(self.vpn.active_name().is_some()),
                     fl!("vpn"),
@@ -465,7 +481,8 @@ impl App {
             ));
         }
         if self.show_keyboard() {
-            tiles.push((
+            keyed.push((
+                TileKey::KeyboardBacklight,
                 Tile::new(
                     icons::keyboard(self.keyboard.is_on()),
                     fl!("keyboard-backlight"),
@@ -484,7 +501,8 @@ impl App {
             } else {
                 fl!("off")
             };
-            tiles.push((
+            keyed.push((
+                TileKey::DoNotDisturb,
                 Tile::new(
                     icons::do_not_disturb(self.system.do_not_disturb),
                     fl!("do-not-disturb"),
@@ -505,7 +523,8 @@ impl App {
                 (None, true) => fl!("on"),
                 (None, false) => fl!("off"),
             };
-            tiles.push((
+            keyed.push((
+                TileKey::KeepAwake,
                 Tile::new(
                     icons::keep_awake(self.caffeine.is_on()),
                     fl!("keep-awake"),
@@ -528,8 +547,10 @@ impl App {
 
         // User-defined tiles go last, after everything built in, so adding one
         // never reshuffles the controls someone is used to.
+        let mut custom_tiles: Vec<(Element<'_, Message>, TileShape)> =
+            Vec::with_capacity(self.custom.len());
         for (index, entry) in self.custom.iter().enumerate() {
-            tiles.push((
+            custom_tiles.push((
                 Tile::new(
                     icons::resolve_owned(&entry.icon),
                     entry.name.clone(),
@@ -547,7 +568,8 @@ impl App {
         // the built-in tiles and before the custom ones so the popup does
         // not reshuffle a familiar layout when a user adds a custom tile.
         if self.show_volume() {
-            tiles.push((
+            keyed.push((
+                TileKey::Volume,
                 tall_slider_tile(
                     icons::volume(self.volume.percent.unwrap_or(0.0), self.volume.muted),
                     fl!("volume"),
@@ -561,7 +583,8 @@ impl App {
             ));
         }
         if self.show_brightness() {
-            tiles.push((
+            keyed.push((
+                TileKey::Brightness,
                 tall_slider_tile(
                     icons::brightness(
                         self.brightness.percent.unwrap_or(0.0),
@@ -578,7 +601,8 @@ impl App {
             ));
         }
         if self.show_microphone() {
-            tiles.push((
+            keyed.push((
+                TileKey::Microphone,
                 tall_slider_tile(
                     icons::microphone(
                         self.microphone.percent.unwrap_or(0.0),
@@ -594,6 +618,24 @@ impl App {
                 TileShape::Tall,
             ));
         }
+
+        // `resolve_order` never drops a key that is present — a key it yields
+        // but `keyed` lacks is a module this machine has no hardware for.
+        let present: Vec<TileKey> = keyed.iter().map(|(k, _, _)| *k).collect();
+        let order = resolve_order(&self.config.appearance.order, |k| present.contains(&k));
+        for key in order {
+            if let Some(i) = keyed.iter().position(|(k, _, _)| *k == key) {
+                let (_, element, shape) = keyed.swap_remove(i);
+                tiles.push((element, shape));
+            }
+        }
+        // Anything `keyed` still holds is a key not in DEFAULT_ORDER — that
+        // cannot happen today (every popup tile has a default slot) but if it
+        // does, draw it rather than lose it.
+        for (_, element, shape) in keyed {
+            tiles.push((element, shape));
+        }
+        tiles.extend(custom_tiles);
 
         let mut content = column::with_capacity(4).spacing(spacing.section);
         if !tiles.is_empty() {
