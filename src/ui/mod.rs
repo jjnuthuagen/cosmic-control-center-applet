@@ -174,10 +174,13 @@ impl<'a, Msg: Clone + 'static> Tile<'a, Msg> {
         let signalled = self.active && self.style != TileStyle::Low;
 
         let icon_name = self.icon_name.into_owned();
-        let glyph: Element<'a, Msg> = match self.style {
-            TileStyle::Medium => icon_base(icon_name, signalled, spacing),
-            _ => icon::from_name(icon_name).size(ICON_SIZE).into(),
-        };
+        // Always the base box, visible only under Medium — see `icon_base`.
+        let glyph: Element<'a, Msg> = icon_base(
+            icon_name,
+            signalled,
+            self.style == TileStyle::Medium,
+            spacing,
+        );
 
         let content = row::with_capacity(2)
             .align_y(Alignment::Center)
@@ -258,27 +261,35 @@ fn tile_surface<'a>() -> theme::Container<'a> {
 /// poorly in both themes — near-white on light blue in dark mode, near-black on
 /// blue in light mode. A tint is unmistakably the accent and keeps the glyph
 /// legible.
+/// `visible` is false for the High and Low styles: the base is still laid out
+/// — so the icon sits in the same 24px box and the text beside it lands on
+/// the same baseline whatever the style — it just draws nothing. Before this,
+/// only Medium got the box and the other two drew a bare 20px icon, which
+/// shifted every tile's content by a few pixels the moment the style changed.
 fn icon_base<'a, Msg: 'static>(
     icon_name: String,
     active: bool,
+    visible: bool,
     spacing: Spacing,
 ) -> Element<'a, Msg> {
     container(icon::from_name(icon_name).size(ICON_SIZE))
         .padding(spacing.pad_y / 2)
         .class(theme::Container::Custom(Box::new(move |theme| {
             let cosmic = theme.cosmic();
-            let fill = if active {
+            let fill = if !visible {
+                None
+            } else if active {
                 let mut accent = cosmic.accent_color();
                 accent.alpha = 0.35;
-                accent
+                Some(accent)
             } else {
                 let mut neutral = cosmic.on_bg_color();
                 neutral.alpha = 0.08;
-                neutral
+                Some(neutral)
             };
 
             container::Style {
-                background: Some(Background::Color(Color::from(fill))),
+                background: fill.map(|c| Background::Color(Color::from(c))),
                 border: Border {
                     radius: cosmic.corner_radii.radius_xs.into(),
                     ..Default::default()
@@ -463,10 +474,12 @@ pub fn connectivity_tile<'a, Msg: Clone + 'static>(
         // the accent on the icon's base, `High` fills the row, `Low` shows no
         // on-state at all.
         let signalled = row_data.on && style != TileStyle::Low;
-        let glyph: Element<'a, Msg> = match style {
-            TileStyle::Medium => icon_base(row_data.icon_name.to_string(), signalled, spacing),
-            _ => icon::from_name(row_data.icon_name).size(ICON_SIZE).into(),
-        };
+        let glyph: Element<'a, Msg> = icon_base(
+            row_data.icon_name.to_string(),
+            signalled,
+            style == TileStyle::Medium,
+            spacing,
+        );
 
         let inner = row::with_capacity(2)
             .align_y(Alignment::Center)

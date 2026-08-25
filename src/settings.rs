@@ -411,7 +411,12 @@ impl Settings {
             .push(text::title4(fl!("settings-controls")))
             .push(text::caption(fl!("settings-preview-detail")));
 
-        let mut tiles: Vec<(Element<'_, Message>, TileShape)> = Vec::with_capacity(20);
+        // Two grids. The top one holds only what the popup draws, in the
+        // order it draws it — so it *is* the popup's layout, not a superset of
+        // it with some tiles dimmed. Everything switched off sits in its own
+        // grid underneath, where tapping brings it back up.
+        let mut shown: Vec<(Element<'_, Message>, TileShape)> = Vec::with_capacity(20);
+        let mut hidden: Vec<(Element<'_, Message>, TileShape)> = Vec::with_capacity(20);
 
         for &key in self.preview_order().iter() {
             let (module_key, shape) = preview_module_key(key);
@@ -420,28 +425,49 @@ impl Settings {
             let dragging = self.dragging && self.pressed == Some(key);
             let tile = preview_frame(tile, enabled, dragging);
             // The handle appears under the pointer, which is what tells you
-            // the tiles can be moved at all. Hidden otherwise: a handle on
-            // every tile at rest is sixteen pieces of clutter saying the same
-            // thing once.
-            let tile = with_drag_handle(tile, self.hovered == Some(key) || dragging, spacing);
+            // the tiles can be moved at all. Only on tiles that are in the
+            // grid: the hidden ones are not part of the layout, so there is
+            // nothing to drag them among.
+            let tile = with_drag_handle(
+                tile,
+                enabled && (self.hovered == Some(key) || dragging),
+                spacing,
+            );
             // One pointer button, two gestures: a press that never leaves the
-            // tile is a tap and selects it; a press that wanders into another
-            // tile is a drag and reorders. `mouse_area` rather than the tile's
-            // own button so both live in one place.
-            let tile = cosmic::widget::mouse_area(tile)
-                .interaction(if dragging {
-                    cosmic::iced::mouse::Interaction::Grabbing
-                } else {
-                    cosmic::iced::mouse::Interaction::Grab
-                })
+            // tile is a tap and toggles it; a press that wanders into another
+            // shown tile is a drag and reorders. `mouse_area` rather than the
+            // tile's own button so both live in one place.
+            let mut area = cosmic::widget::mouse_area(tile)
                 .on_press(Message::PressTile(key))
-                .on_enter(Message::HoverTile(key))
-                .on_exit(Message::ExitTile)
-                .on_release(Message::ReleaseTile);
-            tiles.push((tile.into(), shape));
+                .on_release(Message::ReleaseTile)
+                .on_exit(Message::ExitTile);
+            if enabled {
+                area = area
+                    .interaction(if dragging {
+                        cosmic::iced::mouse::Interaction::Grabbing
+                    } else {
+                        cosmic::iced::mouse::Interaction::Grab
+                    })
+                    .on_enter(Message::HoverTile(key));
+            } else {
+                area = area.interaction(cosmic::iced::mouse::Interaction::Pointer);
+            }
+            let entry = (area.into(), shape);
+            if enabled {
+                shown.push(entry);
+            } else {
+                hidden.push(entry);
+            }
         }
 
-        section = section.push(tile_grid(tiles, theme_spacing));
+        section = section.push(tile_grid(shown, theme_spacing));
+
+        if !hidden.is_empty() {
+            section = section
+                .push(text::title4(fl!("settings-hidden")))
+                .push(text::caption(fl!("settings-hidden-detail")))
+                .push(tile_grid(hidden, theme_spacing));
+        }
         section.into()
     }
 
@@ -846,8 +872,13 @@ impl Application for Settings {
             Message::ExitTile => self.hovered = None,
             Message::HoverTile(over) => {
                 self.hovered = Some(over);
+                // Only a shown tile can be dragged, and only onto another shown
+                // tile — the hidden grid is not part of the layout being
+                // edited. `on_enter` is only wired on shown tiles, but the
+                // pressed one could have been hidden by a tap a moment ago.
+                let shown = |k: TileKey| self.module_enabled(preview_module_key(k).0);
                 if let Some(picked) = self.pressed {
-                    if picked != over {
+                    if picked != over && shown(picked) && shown(over) {
                         // Entering a different tile is what makes this a drag
                         // rather than a tap.
                         self.dragging = true;
@@ -988,8 +1019,11 @@ impl Application for Settings {
                 .push(button::suggested(fl!("close")).on_press(Message::Close)),
         );
 
+        // Fill, not the fixed opening width: the window can be resized, and a
+        // fixed-width container inside a wider window left the extra space
+        // empty on one side and clipped the scrollable on the other.
         container(scrollable(body))
-            .width(Length::Fixed(WINDOW_WIDTH))
+            .width(Length::Fill)
             .height(Length::Fill)
             .into()
     }
