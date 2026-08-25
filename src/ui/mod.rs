@@ -358,10 +358,8 @@ pub struct ConnectivityRow<'a, Msg> {
     /// The one line of state under the label — an SSID, "2 devices", a
     /// VPN profile name. `None` when there is nothing to say.
     pub state: Option<String>,
+    /// Whether this thing is on, for the accent the tile style applies.
     pub on: bool,
-    /// Pressing the switch. `None` greys the switch out — hardware-killed
-    /// Wi-Fi, for instance, where flipping it would do nothing.
-    pub on_toggle: Option<Msg>,
     /// Pressing the row body, to drill into that module's page.
     ///
     /// `None` makes the row inert. The Settings preview needs that: a live
@@ -390,6 +388,7 @@ pub struct ConnectivityRow<'a, Msg> {
 pub fn connectivity_tile<'a, Msg: Clone + 'static>(
     rows: Vec<ConnectivityRow<'a, Msg>>,
     height: f32,
+    style: TileStyle,
     spacing: Spacing,
 ) -> Element<'a, Msg> {
     // The tile is one column wide and two rows tall, so three stacked rows
@@ -407,40 +406,41 @@ pub fn connectivity_tile<'a, Msg: Clone + 'static>(
         );
         let _ = &row_data.state;
 
-        let mut switch = toggler(row_data.on);
-        if let Some(msg) = row_data.on_toggle {
-            switch = switch.on_toggle(move |_| msg.clone());
-        }
+        // The same glyph treatment the standalone tiles get, so a row here
+        // and a tile out there read as the same kind of thing: `Medium` puts
+        // the accent on the icon's base, `High` fills the row, `Low` shows no
+        // on-state at all.
+        let signalled = row_data.on && style != TileStyle::Low;
+        let glyph: Element<'a, Msg> = match style {
+            TileStyle::Medium => icon_base(row_data.icon_name.to_string(), signalled, spacing),
+            _ => icon::from_name(row_data.icon_name).size(ICON_SIZE).into(),
+        };
 
         let inner = row::with_capacity(2)
             .align_y(Alignment::Center)
             .spacing(spacing.gap)
-            .push(icon::from_name(row_data.icon_name).size(ICON_SIZE))
+            .push(glyph)
             .push(labels.width(Length::Fill));
 
-        // The row body is the button; the switch sits outside it so a press
-        // on the switch does not also open the page. With no message it is a
-        // plain container instead — see the note on `on_press`.
+        // The whole row is the button — press it to open that thing's page,
+        // exactly as pressing a tile does. With no message it is a plain
+        // container instead: see the note on `on_press`.
+        let padding = Padding::from([spacing.pad_y / 4, spacing.pad_x / 2]);
         let body: Element<'a, Msg> = match row_data.on_press {
             Some(msg) => button::custom(inner)
-                .padding(Padding::from([spacing.pad_y / 4, spacing.pad_x / 2]))
-                .class(button::ButtonClass::Text)
+                .padding(padding)
+                .class(if signalled && style == TileStyle::High {
+                    button::ButtonClass::Suggested
+                } else {
+                    button::ButtonClass::Text
+                })
                 .width(Length::Fill)
                 .on_press(msg)
                 .into(),
-            None => container(inner)
-                .padding(Padding::from([spacing.pad_y / 4, spacing.pad_x / 2]))
-                .width(Length::Fill)
-                .into(),
+            None => container(inner).padding(padding).width(Length::Fill).into(),
         };
 
-        column = column.push(
-            row::with_capacity(2)
-                .align_y(Alignment::Center)
-                .spacing(spacing.gap)
-                .push(body)
-                .push(switch),
-        );
+        column = column.push(body);
     }
 
     container(column)

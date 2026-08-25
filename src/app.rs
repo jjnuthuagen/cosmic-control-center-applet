@@ -105,8 +105,6 @@ pub enum Message {
     MediaPrevious,
 
     ToggleVpn(String),
-    /// One-press VPN switch from the Connectivity tile.
-    ToggleVpnQuick,
 
     SetVolume(f64),
     ToggleMute,
@@ -184,7 +182,7 @@ impl App {
         self.config.modules.connectivity
             && (self.wifi.availability.is_shown()
                 || self.bluetooth.availability.is_shown()
-                || self.vpn.availability.is_shown())
+                || self.config.modules.vpn)
     }
 
     // Rows inside the group gate on the hardware alone. The `wifi` flag is
@@ -314,10 +312,6 @@ impl App {
                 label: fl!("wifi"),
                 state: Some(self.wifi_state_text()),
                 on: self.wifi.enabled && !killed,
-                // A hardware kill switch or airplane mode holds the radio off;
-                // a switch that flips and then flips back is worse than one
-                // that is plainly disabled.
-                on_toggle: (!killed).then_some(Message::WifiToggleRadio),
                 on_press: Some(Message::Navigate(Page::Wifi)),
             });
         }
@@ -331,12 +325,15 @@ impl App {
                 label: fl!("bluetooth"),
                 state: Some(self.bluetooth_state_text()),
                 on: self.bluetooth.powered,
-                on_toggle: Some(Message::BluetoothTogglePower),
                 on_press: Some(Message::Navigate(Page::Bluetooth)),
             });
         }
 
-        if self.vpn_available() {
+        // Not gated on availability, unlike the two above. "No VPN profiles
+        // are saved" is a thing the user needs told, and a row that is simply
+        // absent tells them nothing — it reads as the applet not supporting
+        // VPNs at all. The page it opens explains.
+        if self.config.modules.vpn {
             let active = self.vpn.active_name().is_some();
             rows.push(ConnectivityRow {
                 icon_name: icons::vpn(active),
@@ -347,13 +344,16 @@ impl App {
                         .map_or_else(|| fl!("vpn-off"), str::to_string),
                 ),
                 on: active,
-                // Only meaningful when there is a profile to switch on.
-                on_toggle: (!self.vpn.profiles.is_empty()).then_some(Message::ToggleVpnQuick),
                 on_press: Some(Message::Navigate(Page::Vpn)),
             });
         }
 
-        connectivity_tile(rows, crate::ui::tall_height(spacing), spacing)
+        connectivity_tile(
+            rows,
+            crate::ui::tall_height(spacing),
+            self.config.appearance.style,
+            spacing,
+        )
     }
 
     fn root_page(&self) -> Element<'_, Message> {
@@ -365,15 +365,15 @@ impl App {
         // tile this machine can show; `resolve_order` decides the sequence and
         // drops nothing that is here — a key absent from `keyed` is simply a
         // module this machine has no hardware for.
-        let mut keyed: Vec<(TileKey, Element<'_, Message>, TileShape)> = Vec::with_capacity(16);
+        // Keyed by tile, without a shape: the shape belongs to the key, and
+        // writing it at each push meant the popup and `default_shape` could
+        // disagree — which they did, silently, leaving the sliders narrow and
+        // Connectivity wide after both were reshaped.
+        let mut keyed: Vec<(TileKey, Element<'_, Message>)> = Vec::with_capacity(16);
         let mut tiles: Vec<(Element<'_, Message>, TileShape)> = Vec::with_capacity(16);
 
         if self.show_connectivity() {
-            keyed.push((
-                TileKey::Connectivity,
-                self.connectivity_tile(spacing),
-                TileShape::Wide,
-            ));
+            keyed.push((TileKey::Connectivity, self.connectivity_tile(spacing)));
         }
 
         if self.show_wifi() {
@@ -384,7 +384,6 @@ impl App {
                     .on_press(Message::Navigate(Page::Wifi))
                     .style(self.config.appearance.style)
                     .view(spacing),
-                TileShape::Small,
             ));
         }
         if self.show_bluetooth() {
@@ -399,7 +398,6 @@ impl App {
                 .on_press(Message::Navigate(Page::Bluetooth))
                 .style(self.config.appearance.style)
                 .view(spacing),
-                TileShape::Small,
             ));
         }
         if self.show_battery() {
@@ -415,7 +413,6 @@ impl App {
             keyed.push((
                 TileKey::Battery,
                 tile.style(self.config.appearance.style).view(spacing),
-                TileShape::Small,
             ));
         }
         if self.show_dns() {
@@ -429,7 +426,6 @@ impl App {
                     .on_press(Message::Navigate(Page::Dns))
                     .style(self.config.appearance.style)
                     .view(spacing),
-                TileShape::Small,
             ));
         }
         if self.show_dark_mode() {
@@ -445,7 +441,6 @@ impl App {
                     .on_press(Message::ToggleDark)
                     .style(self.config.appearance.style)
                     .view(spacing),
-                TileShape::Small,
             ));
         }
         if self.show_tiling() {
@@ -461,7 +456,6 @@ impl App {
                     .on_press(Message::ToggleTiling)
                     .style(self.config.appearance.style)
                     .view(spacing),
-                TileShape::Small,
             ));
         }
 
@@ -481,7 +475,6 @@ impl App {
                 .style(self.config.appearance.style)
                 .on_press(Message::Navigate(Page::Vpn))
                 .view(spacing),
-                TileShape::Small,
             ));
         }
         if self.show_keyboard() {
@@ -496,7 +489,6 @@ impl App {
                 .style(self.config.appearance.style)
                 .on_press(Message::CycleKeyboard)
                 .view(spacing),
-                TileShape::Small,
             ));
         }
         if self.show_do_not_disturb() {
@@ -516,7 +508,6 @@ impl App {
                 .style(self.config.appearance.style)
                 .on_press(Message::ToggleDoNotDisturb)
                 .view(spacing),
-                TileShape::Small,
             ));
         }
         if self.show_keep_awake() {
@@ -545,7 +536,6 @@ impl App {
                         .then_some(Message::ToggleKeepAwake),
                 )
                 .view(spacing),
-                TileShape::Small,
             ));
         }
 
@@ -563,14 +553,14 @@ impl App {
                 .style(self.config.appearance.style)
                 .on_press(Message::RunCustom(index))
                 .view(spacing),
+                // Custom tiles have no TileKey, so their shape is written
+                // here — they are always the plain square.
                 TileShape::Small,
             ));
         }
 
-        // Sliders are Tall tiles now, packed into the same grid rather than
-        // laid out as separate full-width rows underneath. They come after
-        // the built-in tiles and before the custom ones so the popup does
-        // not reshuffle a familiar layout when a user adds a custom tile.
+        // Sliders are packed into the same grid rather than laid out as
+        // separate full-width rows underneath.
         if self.show_volume() {
             keyed.push((
                 TileKey::Volume,
@@ -587,7 +577,6 @@ impl App {
                     },
                     spacing,
                 ),
-                TileShape::Tall,
             ));
         }
         if self.show_brightness() {
@@ -609,7 +598,6 @@ impl App {
                     },
                     spacing,
                 ),
-                TileShape::Tall,
             ));
         }
         if self.show_microphone() {
@@ -631,25 +619,24 @@ impl App {
                     },
                     spacing,
                 ),
-                TileShape::Tall,
             ));
         }
 
         // `resolve_order` never drops a key that is present — a key it yields
         // but `keyed` lacks is a module this machine has no hardware for.
-        let present: Vec<TileKey> = keyed.iter().map(|(k, _, _)| *k).collect();
+        let present: Vec<TileKey> = keyed.iter().map(|(k, _)| *k).collect();
         let order = resolve_order(&self.config.appearance.order, |k| present.contains(&k));
         for key in order {
-            if let Some(i) = keyed.iter().position(|(k, _, _)| *k == key) {
-                let (_, element, shape) = keyed.swap_remove(i);
-                tiles.push((element, shape));
+            if let Some(i) = keyed.iter().position(|(k, _)| *k == key) {
+                let (key, element) = keyed.swap_remove(i);
+                tiles.push((element, key.default_shape()));
             }
         }
         // Anything `keyed` still holds is a key not in DEFAULT_ORDER — that
         // cannot happen today (every popup tile has a default slot) but if it
         // does, draw it rather than lose it.
-        for (_, element, shape) in keyed {
-            tiles.push((element, shape));
+        for (key, element) in keyed {
+            tiles.push((element, key.default_shape()));
         }
         tiles.extend(custom_tiles);
 
@@ -757,6 +744,13 @@ impl App {
                 Some(Message::ToggleVpn(profile.uuid.clone())),
                 spacing,
             ));
+        }
+
+        // With no profiles at all the page is otherwise just a heading and a
+        // footnote, which reads as something that failed to load. Say plainly
+        // that there is nothing to connect to.
+        if self.vpn.profiles.is_empty() {
+            content = content.push(text::body(fl!("vpn-none-saved")));
         }
 
         content = content.push(text::caption(fl!("vpn-add-in-settings")));
@@ -1451,10 +1445,6 @@ impl Application for App {
                 None => Task::none(),
             },
 
-            Message::ToggleVpnQuick => match self.vpn.toggle_quick() {
-                Some(future) => run(future),
-                None => Task::none(),
-            },
             Message::ToggleVpn(uuid) => match self.vpn.toggle(&uuid) {
                 Some(future) => run(future),
                 None => Task::none(),

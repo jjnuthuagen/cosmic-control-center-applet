@@ -107,6 +107,7 @@ media-nothing-playing = Nothing playing
 # -- VPN ----------------------------------------------------------------------
 vpn = VPN
 vpn-off = Not connected
+vpn-none-saved = No VPN connections are set up on this machine.
 vpn-add-in-settings = Add or edit VPN connections in Settings.
 
 # -- Other toggles ------------------------------------------------------------

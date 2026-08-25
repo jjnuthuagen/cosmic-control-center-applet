@@ -67,24 +67,6 @@ impl State {
         }
     }
 
-    /// One-press toggle for the grouped tile: disconnect whatever is active,
-    /// else connect the first saved profile.
-    ///
-    /// The standalone VPN page lists every profile and lets you pick; the row
-    /// inside the Connectivity tile has one switch and no room for a list, so
-    /// it needs a sensible default. "First saved profile" is the least
-    /// surprising: it is what the page shows at the top, and a user with one
-    /// VPN — the common case — gets exactly what they expect.
-    pub fn toggle_quick(&mut self) -> Option<impl std::future::Future<Output = ()>> {
-        let uuid = self
-            .profiles
-            .iter()
-            .find(|p| p.active)
-            .or_else(|| self.profiles.first())
-            .map(|p| p.uuid.clone())?;
-        self.toggle(&uuid)
-    }
-
     pub fn toggle(&mut self, uuid: &str) -> Option<impl std::future::Future<Output = ()>> {
         let profile = self.profiles.iter_mut().find(|p| p.uuid == uuid)?;
         let connect = !profile.active;

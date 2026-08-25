@@ -507,13 +507,12 @@ impl Settings {
                     label: label(ftl),
                     state: None,
                     on: enabled,
-                    on_toggle: None,
                     on_press: None,
                 })
                 .collect();
                 // The popup's own Tall height: with the switch rows gone, a
                 // preview cell is exactly a tile again.
-                connectivity_tile(rows, crate::ui::tall_height(spacing), spacing)
+                connectivity_tile(rows, crate::ui::tall_height(spacing), style, spacing)
             }
             TileKey::Volume => wide_slider_tile(
                 icons::volume(60.0, false),
