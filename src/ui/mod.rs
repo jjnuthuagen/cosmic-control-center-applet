@@ -290,24 +290,41 @@ pub fn ghost_tile<'a, Msg: 'a>(spacing: Spacing) -> Element<'a, Msg> {
 ///    but it prevents a panic when it happens.
 pub fn tile_grid<'a, Msg: Clone + 'static>(
     tiles: Vec<(Element<'a, Msg>, TileShape)>,
+    width: f32,
     spacing: Spacing,
 ) -> Element<'a, Msg> {
     let shapes: Vec<TileShape> = tiles.iter().map(|(_, shape)| *shape).collect();
     let packed = pack(&shapes, 2);
 
+    // libcosmic's Grid is taffy underneath, and taffy sizes a column to its
+    // children's *intrinsic* width — which for a `Length::Fill` child is zero.
+    // Every tile is built with Fill so it can stretch inside a row, and the
+    // first grid drew as a 12px sliver. So each child is wrapped in a
+    // container of the exact pixel width its cell should have, computed from
+    // the grid's inner width rather than left for layout to discover.
+    let gap = f32::from(spacing.gap);
+    let cell = ((width - gap) / 2.0).max(0.0);
+    let span = |columns: u16| -> f32 {
+        if columns >= 2 {
+            width
+        } else {
+            cell
+        }
+    };
+
     let mut grid = cosmic::widget::grid()
         .column_spacing(spacing.gap)
         .row_spacing(spacing.gap)
-        .width(Length::Fill);
+        .width(Length::Fixed(width));
 
     for ((element, _), placement) in tiles.into_iter().zip(packed.tiles.iter()) {
-        grid = grid.push_with(element, |assignment| assign(assignment, *placement));
+        let sized = container(element).width(Length::Fixed(span(placement.width)));
+        grid = grid.push_with(sized, |assignment| assign(assignment, *placement));
     }
 
     for placement in packed.ghosts {
-        grid = grid.push_with(ghost_tile(spacing), |assignment| {
-            assign(assignment, placement)
-        });
+        let sized = container(ghost_tile(spacing)).width(Length::Fixed(cell));
+        grid = grid.push_with(sized, |assignment| assign(assignment, placement));
     }
 
     grid.into()

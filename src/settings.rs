@@ -372,7 +372,14 @@ impl Settings {
             ));
         }
 
-        section = section.push(tile_grid(tiles, theme_spacing));
+        // The window is WINDOW_WIDTH wide; the body column pads both sides
+        // by `spacing * 2`, and the scrollable keeps a strip on the right for
+        // its bar. That last number is libcosmic's default scroller width and
+        // there is no API to ask for it, so it is written down here — if the
+        // grid ever grows a horizontal scrollbar, this is the number to raise.
+        const SCROLLBAR: f32 = 16.0;
+        let inner = WINDOW_WIDTH - f32::from(spacing) * 4.0 - SCROLLBAR;
+        section = section.push(tile_grid(tiles, inner, theme_spacing));
         section.into()
     }
 

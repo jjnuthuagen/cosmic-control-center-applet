@@ -639,7 +639,10 @@ impl App {
 
         let mut content = column::with_capacity(4).spacing(spacing.section);
         if !tiles.is_empty() {
-            content = content.push(tile_grid(tiles, spacing));
+            // The popup is POPUP_WIDTH wide with the page's own padding on
+            // each side; what is left is the grid.
+            let inner = POPUP_WIDTH - f32::from(spacing.section) * 2.0;
+            content = content.push(tile_grid(tiles, inner, spacing));
         }
 
         // Media stays a full-width row underneath: it has three buttons and a
