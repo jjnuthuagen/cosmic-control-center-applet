@@ -31,10 +31,11 @@ pub struct Config {
 pub struct Modules {
     /// The Wi-Fi + Bluetooth + VPN grouped tile.
     ///
-    /// When on, the three standalone tiles are hidden and their switches
-    /// live inside one Wide tile instead. When off, each is its own Small
-    /// tile as before. Their own flags below still decide whether each row
-    /// appears in the group.
+    /// Independent of the three flags below: the group and the standalone
+    /// tiles are separate choices, so you can have the group, the individual
+    /// tiles, both, or neither. Rows inside the group appear whenever the
+    /// hardware is there — `wifi = false` hides the standalone Wi-Fi tile,
+    /// it does not empty the group's Wi-Fi row.
     pub connectivity: bool,
     pub wifi: bool,
     pub bluetooth: bool,
@@ -144,9 +145,11 @@ impl Default for Modules {
         // absent. Opting out here is for people who have working hardware but
         // still don't want the tile.
         Self {
+            // The group on, the three standalone tiles off: showing both by
+            // default would put Wi-Fi on the grid twice.
             connectivity: true,
-            wifi: true,
-            bluetooth: true,
+            wifi: false,
+            bluetooth: false,
             battery: true,
             dns: true,
             volume: true,
@@ -159,7 +162,7 @@ impl Default for Modules {
             do_not_disturb: true,
             keep_awake: true,
             media: true,
-            vpn: true,
+            vpn: false,
             charge_threshold: true,
         }
     }

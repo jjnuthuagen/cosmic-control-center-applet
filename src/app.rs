@@ -25,8 +25,8 @@ use crate::modules::{
 };
 use crate::tile_layout::{resolve_order, TileKey, TileShape};
 use crate::ui::{
-    connectivity_tile, icons, list_row, page_header, scrollable_page, tall_slider_tile, tile_grid,
-    toggle_row, ConnectivityRow, Spacing, Tile,
+    connectivity_tile, icons, list_row, page_header, scrollable_page, tile_grid, toggle_row,
+    wide_slider_tile, ConnectivityRow, Spacing, Tile,
 };
 
 /// Wide enough for two tiles plus their state text, narrow enough not to
@@ -182,29 +182,33 @@ impl App {
     /// not an empty card.
     fn show_connectivity(&self) -> bool {
         self.config.modules.connectivity
-            && (self.wifi_available() || self.bluetooth_available() || self.vpn_available())
+            && (self.wifi.availability.is_shown()
+                || self.bluetooth.availability.is_shown()
+                || self.vpn.availability.is_shown())
     }
 
+    // Rows inside the group gate on the hardware alone. The `wifi` flag is
+    // about the *standalone tile*, so switching that off must not empty the
+    // group's Wi-Fi row — those are two different questions.
     fn wifi_available(&self) -> bool {
-        self.config.modules.wifi && self.wifi.availability.is_shown()
+        self.wifi.availability.is_shown()
     }
 
     fn bluetooth_available(&self) -> bool {
-        self.config.modules.bluetooth && self.bluetooth.availability.is_shown()
+        self.bluetooth.availability.is_shown()
     }
 
     fn vpn_available(&self) -> bool {
-        self.config.modules.vpn && self.vpn.availability.is_shown()
+        self.vpn.availability.is_shown()
     }
 
-    // The standalone tiles are hidden while the group is showing — the group
-    // *replaces* them, it does not sit alongside.
+    // The standalone tiles are independent of the group: on, off, or both.
     fn show_wifi(&self) -> bool {
-        self.wifi_available() && !self.show_connectivity()
+        self.config.modules.wifi && self.wifi_available()
     }
 
     fn show_bluetooth(&self) -> bool {
-        self.bluetooth_available() && !self.show_connectivity()
+        self.config.modules.bluetooth && self.bluetooth_available()
     }
 
     fn show_battery(&self) -> bool {
@@ -240,7 +244,7 @@ impl App {
     }
 
     fn show_vpn(&self) -> bool {
-        self.vpn_available() && !self.show_connectivity()
+        self.config.modules.vpn && self.vpn_available()
     }
 
     fn show_keep_awake(&self) -> bool {
@@ -570,7 +574,7 @@ impl App {
         if self.show_volume() {
             keyed.push((
                 TileKey::Volume,
-                tall_slider_tile(
+                wide_slider_tile(
                     icons::volume(self.volume.percent.unwrap_or(0.0), self.volume.muted),
                     fl!("volume"),
                     self.volume.percent.unwrap_or(0.0),
@@ -585,7 +589,7 @@ impl App {
         if self.show_brightness() {
             keyed.push((
                 TileKey::Brightness,
-                tall_slider_tile(
+                wide_slider_tile(
                     icons::brightness(
                         self.brightness.percent.unwrap_or(0.0),
                         self.brightness.dimmed,
@@ -603,7 +607,7 @@ impl App {
         if self.show_microphone() {
             keyed.push((
                 TileKey::Microphone,
-                tall_slider_tile(
+                wide_slider_tile(
                     icons::microphone(
                         self.microphone.percent.unwrap_or(0.0),
                         self.microphone.muted,
@@ -1554,10 +1558,14 @@ impl Application for App {
         // never opens a bus connection at all. That is the point of the config
         // toggle: hiding a tile while leaving a D-Bus client running would be a
         // cosmetic fix to a resource problem.
-        if self.config.modules.wifi {
+        // Either consumer keeps the module alive: the standalone tile or
+        // a row inside the Connectivity group.
+        if self.config.modules.wifi || self.config.modules.connectivity {
             subscriptions.push(self.wifi.subscription().map(Message::Wifi));
         }
-        if self.config.modules.bluetooth {
+        // Either consumer keeps the module alive: the standalone tile or
+        // a row inside the Connectivity group.
+        if self.config.modules.bluetooth || self.config.modules.connectivity {
             subscriptions.push(self.bluetooth.subscription().map(Message::Bluetooth));
         }
         if self.config.modules.battery {
@@ -1603,7 +1611,9 @@ impl Application for App {
         // VPN state is signal-free, so it polls — but unlike the others it must
         // keep running while the popup is closed, or the tile would show a
         // stale connection the moment it reopens.
-        if self.config.modules.vpn {
+        // Either consumer keeps the module alive: the standalone tile or
+        // a row inside the Connectivity group.
+        if self.config.modules.vpn || self.config.modules.connectivity {
             subscriptions.push(self.vpn.subscription().map(Message::Vpn));
         }
 

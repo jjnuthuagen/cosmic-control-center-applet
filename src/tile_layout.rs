@@ -66,8 +66,13 @@ impl TileKey {
     /// do not fit legibly in a single-column tile. Everything else is Small.
     pub fn default_shape(self) -> TileShape {
         match self {
-            TileKey::Connectivity => TileShape::Wide,
-            TileKey::Volume | TileKey::Brightness | TileKey::Microphone => TileShape::Tall,
+            // A narrow column of stacked switches, the way the macOS Control
+            // Centre draws its connectivity block — not a full-width banner.
+            TileKey::Connectivity => TileShape::Tall,
+            // Sliders read left-to-right. A vertical track in a square tile
+            // was tried and is worse: the travel is shorter, and the value is
+            // no longer where the eye expects it.
+            TileKey::Volume | TileKey::Brightness | TileKey::Microphone => TileShape::Wide,
             _ => TileShape::Small,
         }
     }

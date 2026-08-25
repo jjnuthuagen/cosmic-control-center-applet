@@ -23,7 +23,7 @@ use crate::config::{Config, PanelIcon, TileStyle};
 use crate::fl;
 use crate::tile_layout::{TileKey, TileShape};
 use crate::ui::{
-    connectivity_tile, icons, tall_slider_tile, tile_grid, ConnectivityRow, Spacing, Tile,
+    connectivity_tile, icons, tile_grid, wide_slider_tile, ConnectivityRow, Spacing, Tile,
 };
 
 const WINDOW_WIDTH: f32 = 560.0;
@@ -409,22 +409,15 @@ impl Settings {
 
         match key {
             TileKey::Connectivity => {
+                // Every row, always: the group's rows follow the hardware, not
+                // the standalone tiles' switches, same as the popup.
                 let rows = [
-                    (
-                        "wifi",
-                        icons::wifi(false, false, true, true, 80),
-                        self.config.modules.wifi,
-                    ),
-                    (
-                        "bluetooth",
-                        icons::bluetooth(true, 0),
-                        self.config.modules.bluetooth,
-                    ),
-                    ("vpn", icons::vpn(false), self.config.modules.vpn),
+                    ("wifi", icons::wifi(false, false, true, true, 80)),
+                    ("bluetooth", icons::bluetooth(true, 0)),
+                    ("vpn", icons::vpn(false)),
                 ]
                 .into_iter()
-                .filter(|(_, _, on)| *on)
-                .map(|(ftl, icon, _)| ConnectivityRow {
+                .map(|(ftl, icon)| ConnectivityRow {
                     icon_name: icon,
                     label: label(ftl),
                     state: None,
@@ -435,7 +428,7 @@ impl Settings {
                 .collect();
                 connectivity_tile(rows, spacing)
             }
-            TileKey::Volume => tall_slider_tile(
+            TileKey::Volume => wide_slider_tile(
                 icons::volume(60.0, false),
                 label("volume"),
                 60.0,
@@ -444,7 +437,7 @@ impl Settings {
                 enabled,
                 spacing,
             ),
-            TileKey::Brightness => tall_slider_tile(
+            TileKey::Brightness => wide_slider_tile(
                 icons::brightness(70.0, false),
                 label("brightness"),
                 70.0,
@@ -453,7 +446,7 @@ impl Settings {
                 enabled,
                 spacing,
             ),
-            TileKey::Microphone => tall_slider_tile(
+            TileKey::Microphone => wide_slider_tile(
                 icons::microphone(50.0, false),
                 label("microphone"),
                 50.0,

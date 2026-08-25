@@ -20,7 +20,7 @@ pub mod icons;
 
 use cosmic::iced::{Alignment, Background, Border, Color, Length, Padding};
 use cosmic::widget::{
-    button, container, icon, row, scrollable, text, toggler, tooltip, vertical_slider,
+    button, container, icon, progress_bar, row, scrollable, slider, text, toggler, tooltip,
 };
 use cosmic::{theme, Element};
 
@@ -382,17 +382,20 @@ pub fn connectivity_tile<'a, Msg: Clone + 'static>(
     rows: Vec<ConnectivityRow<'a, Msg>>,
     spacing: Spacing,
 ) -> Element<'a, Msg> {
+    // The tile is one column wide and two rows tall, so three stacked rows
+    // have to be compact: the switch keeps its size, everything else gives.
     let mut column = cosmic::widget::column::with_capacity(rows.len()).spacing(spacing.gap / 2);
 
     for row_data in rows {
-        let mut labels = cosmic::widget::column::with_capacity(2)
-            .push(text::body(row_data.label).wrapping(cosmic::iced::widget::text::Wrapping::None));
-        if let Some(state) = row_data.state {
-            labels = labels.push(
-                text::caption(truncate(&state, MAX_STATE_CHARS * 2))
-                    .wrapping(cosmic::iced::widget::text::Wrapping::None),
-            );
-        }
+        // Name only. The state line was dropped when the tile went from two
+        // columns to one: "a real SSID" does not fit beside a switch in half
+        // the popup's width, and a truncated SSID tells you less than the
+        // icon already does.
+        let labels = cosmic::widget::column::with_capacity(1).push(
+            text::body(truncate(&row_data.label, CONNECTIVITY_LABEL_CHARS))
+                .wrapping(cosmic::iced::widget::text::Wrapping::None),
+        );
+        let _ = &row_data.state;
 
         let mut switch = toggler(row_data.on);
         if let Some(msg) = row_data.on_toggle {
@@ -408,7 +411,7 @@ pub fn connectivity_tile<'a, Msg: Clone + 'static>(
                 .push(icon::from_name(row_data.icon_name).size(ICON_SIZE))
                 .push(labels.width(Length::Fill)),
         )
-        .padding(Padding::from([spacing.pad_y / 2, spacing.pad_x / 2]))
+        .padding(Padding::from([spacing.pad_y / 4, spacing.pad_x / 2]))
         .class(button::ButtonClass::Text)
         .width(Length::Fill)
         .on_press(row_data.on_press);
@@ -422,29 +425,32 @@ pub fn connectivity_tile<'a, Msg: Clone + 'static>(
         );
     }
 
+    // Exactly the Tall footprint, so the packer's arithmetic and the drawn
+    // height agree: two tile rows plus the gap that would sit between them.
     container(column)
         .padding(spacing.padding())
         .width(Length::Fill)
+        .height(Length::Fixed(
+            tile_height(spacing) * 2.0 + f32::from(spacing.gap),
+        ))
         .class(theme::Container::Primary)
         .into()
 }
 
-/// The Tall slider tile: icon on top, vertical slider, percent at bottom.
+/// Characters of a row's name the narrow Connectivity tile can show.
+const CONNECTIVITY_LABEL_CHARS: usize = 10;
+
+/// The Wide slider tile: icon, horizontal track, percentage, in a card.
 ///
-/// A drop-in replacement for [`slider_row`] that occupies a `TileShape::Tall`
-/// footprint (one column, two rows) in the grid. Used for volume, brightness
-/// and microphone.
+/// Occupies [`TileShape::Wide`] — two columns, one row. A slider reads
+/// left-to-right; the vertical form this replaces had shorter travel and put
+/// the value somewhere the eye does not look for it.
 ///
-/// The icon is still a button — pressing it mutes / dims, the same way the
-/// slider row worked, so the pattern the user already knows carries through
-/// to the taller form. When `enabled` is false the vertical slider is
-/// replaced by an inert filled bar showing where the level was, so a
-/// muted volume tile still says "you were at 45%".
-///
-/// The tile itself uses the same rounded background as the other tiles for
-/// visual consistency: a bare column with no card behind it would sit oddly
-/// next to the Small tiles it shares a row with.
-pub fn tall_slider_tile<'a, Msg: Clone + 'static>(
+/// The icon is a button — pressing it mutes or dims, the gesture the slider
+/// row always had. When `enabled` is false the track is replaced by an inert
+/// bar at the level it was, so a muted tile still says "you were at 45%" and
+/// dragging cannot silently set a new value on a muted device.
+pub fn wide_slider_tile<'a, Msg: Clone + 'static>(
     icon_name: &'a str,
     label: impl Into<String>,
     value: f64,
@@ -453,7 +459,7 @@ pub fn tall_slider_tile<'a, Msg: Clone + 'static>(
     enabled: bool,
     spacing: Spacing,
 ) -> Element<'a, Msg> {
-    let icon_element: Element<'a, Msg> = match on_icon_press {
+    let leading: Element<'a, Msg> = match on_icon_press {
         Some(msg) => button::icon(icon::from_name(icon_name).size(ICON_SIZE))
             .padding(spacing.pad_y / 2)
             .on_press(msg)
@@ -463,96 +469,50 @@ pub fn tall_slider_tile<'a, Msg: Clone + 'static>(
             .into(),
     };
 
-    // The vertical slider needs an explicit height, because a vertical slider
-    // inside a Column with Length::Fill collapses to its minimum without one.
-    // The Tall tile is two rows high, so the middle track gets the tile's own
-    // pair-of-rows height minus what the icon and percent above and below need.
-    let track_height = tile_height(spacing) * 2.0 + f32::from(spacing.gap)
-        - f32::from(ICON_SIZE) * 2.0
-        - f32::from(spacing.gap) * 2.0
-        - f32::from(spacing.pad_y) * 2.0;
     let track: Element<'a, Msg> = if enabled {
-        vertical_slider(0.0..=100.0, value, on_change)
+        slider(0.0..=100.0, value, on_change)
             .step(1.0)
-            .height(Length::Fixed(track_height.max(24.0)))
+            .width(Length::Fill)
             .into()
     } else {
-        // Still shows where it was. A bar rather than a live slider so that
-        // muted-then-dragged doesn't accidentally set a new value.
-        inert_vertical_bar(value, track_height.max(24.0), spacing)
+        inert_track(value, spacing)
     };
 
-    let percent = text::caption(format!("{}%", value.round() as u32));
-
-    let column = cosmic::widget::column::with_capacity(3)
-        .align_x(Alignment::Center)
+    let content = row::with_capacity(3)
+        .align_y(Alignment::Center)
         .spacing(spacing.gap)
-        .push(icon_element)
+        .push(leading)
         .push(track)
-        .push(percent);
+        .push(text::caption(format!("{}%", value.round() as u32)));
 
-    // Same rounded background as a Small tile, using libcosmic's Primary
-    // container style — writing our own container::Style referenced private
-    // cosmic-theme fields, which do not compile against `ef490df`. Height is
-    // the Tall footprint: two Small rows plus the gap that would otherwise
-    // sit between them.
-    let tile: Element<'a, Msg> = container(column)
+    let tile: Element<'a, Msg> = container(content)
         .padding(spacing.padding())
         .width(Length::Fill)
-        .height(Length::Fixed(
-            tile_height(spacing) * 2.0 + f32::from(spacing.gap),
-        ))
-        .align_x(Alignment::Center)
+        .height(Length::Fixed(tile_height(spacing)))
+        .align_y(Alignment::Center)
         .class(theme::Container::Primary)
         .into();
 
-    // The tile has no visible heading — it is a slider first — so the label
-    // shows on hover, matching how the Small tile behaves.
     tooltip(tile, text::body(label.into()), tooltip::Position::Top).into()
 }
 
-/// A read-only vertical bar showing where a disabled slider would sit.
+/// A read-only bar where a disabled slider's track would be.
 ///
-/// A vertical container split into two: a spacer below and a filled cap above,
-/// with the cap sized as a fraction of the whole. Deliberately does not use
-/// iced's `progress_bar`, which is horizontal only.
-fn inert_vertical_bar<'a, Msg: 'a>(
-    percent: f64,
-    height: f32,
-    spacing: Spacing,
-) -> Element<'a, Msg> {
-    let fraction = (percent / 100.0).clamp(0.0, 1.0) as f32;
-    let filled_height = height * fraction;
-    let empty_height = height - filled_height;
-
-    let filled = container(cosmic::widget::Space::new())
-        .width(Length::Fixed(6.0))
-        .height(Length::Fixed(filled_height))
-        .class(theme::Container::Custom(Box::new(|theme| {
-            let cosmic = theme.cosmic();
-            let mut fill = cosmic.on_bg_color();
-            fill.alpha = 0.55;
-            container::Style {
-                background: Some(Background::Color(Color::from(fill))),
-                border: Border {
-                    radius: cosmic.corner_radii.radius_xs.into(),
-                    ..Default::default()
-                },
-                ..Default::default()
-            }
-        })));
-
-    let empty = container(cosmic::widget::Space::new())
-        .width(Length::Fixed(6.0))
-        .height(Length::Fixed(empty_height));
-
+/// Padded to the slider's own geometry rather than drawn edge to edge: a
+/// slider's rail is inset by half a handle at each end, so a bare progress bar
+/// visibly changes the track's length when a control is muted, and the row
+/// twitches every time you press the icon.
+fn inert_track<'a, Msg: Clone + 'a>(percent: f64, spacing: Spacing) -> Element<'a, Msg> {
     let _ = spacing;
-    cosmic::widget::column::with_capacity(2)
-        .align_x(Alignment::Center)
-        .push(empty)
-        .push(filled)
+    container(progress_bar::determinate_linear((percent / 100.0) as f32).width(Length::Fill))
+        .padding(Padding::from([0, HANDLE_RADIUS]))
+        .width(Length::Fill)
         .into()
 }
+
+/// Half of COSMIC's slider handle, which is how far its rail is inset at each
+/// end. libcosmic exposes no way to ask, so it is written down here.
+const HANDLE_RADIUS: u16 = 13;
 
 /// A row whose control is an actual switch.
 ///
