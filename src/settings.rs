@@ -82,6 +82,27 @@ fn picked_frame(tile: Element<'_, Message>, picked: bool) -> Element<'_, Message
         .into()
 }
 
+/// A COSMIC toggler's height. libcosmic exposes no way to ask, so it is
+/// written down — if the preview's columns drift out of line, this is the
+/// number that stopped matching.
+const SWITCH_HEIGHT: f32 = 24.0;
+
+/// One preview cell: a tile plus the switch beneath it.
+fn preview_cell_height(spacing: Spacing) -> f32 {
+    crate::ui::tile_height(spacing) + f32::from(spacing.gap) / 2.0 + SWITCH_HEIGHT
+}
+
+/// A Tall preview cell — two cells and the gap between them.
+///
+/// Not the popup's Tall height: there, a cell is just a tile. Here every cell
+/// carries a switch, so a tile spanning two rows has to span two switches too,
+/// or its column ends short and the grid looks ragged.
+fn preview_tall_height(spacing: Spacing) -> f32 {
+    preview_cell_height(spacing) * 2.0 + f32::from(spacing.gap)
+        - f32::from(spacing.gap) / 2.0
+        - SWITCH_HEIGHT
+}
+
 /// A preview tile with its module switch beneath it.
 ///
 /// The switch sits under the tile rather than on it: a toggler drawn over a
@@ -442,7 +463,7 @@ impl Settings {
                     on_press: Message::Noop,
                 })
                 .collect();
-                connectivity_tile(rows, spacing)
+                connectivity_tile(rows, preview_tall_height(spacing), spacing)
             }
             TileKey::Volume => wide_slider_tile(
                 icons::volume(60.0, false),

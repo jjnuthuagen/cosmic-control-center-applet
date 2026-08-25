@@ -353,7 +353,7 @@ impl App {
             });
         }
 
-        connectivity_tile(rows, spacing)
+        connectivity_tile(rows, crate::ui::tall_height(spacing), spacing)
     }
 
     fn root_page(&self) -> Element<'_, Message> {

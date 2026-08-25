@@ -378,8 +378,14 @@ pub struct ConnectivityRow<'a, Msg> {
 /// the top of the grid without being split around. Its height is that of a
 /// Small tile stretched to fit however many rows are present, so the packer
 /// treats it as one row-unit and the grid does not gain a ragged edge.
+/// `height` is the cell it has to fill. The popup's Tall cell is two tile
+/// rows plus the gap between them ([`tall_height`]); the Settings preview's
+/// is taller, because every tile there carries a switch underneath and a Tall
+/// tile spans two of those. Passing it in keeps both callers honest instead of
+/// baking one caller's geometry into the widget.
 pub fn connectivity_tile<'a, Msg: Clone + 'static>(
     rows: Vec<ConnectivityRow<'a, Msg>>,
+    height: f32,
     spacing: Spacing,
 ) -> Element<'a, Msg> {
     // The tile is one column wide and two rows tall, so three stacked rows
@@ -425,16 +431,18 @@ pub fn connectivity_tile<'a, Msg: Clone + 'static>(
         );
     }
 
-    // Exactly the Tall footprint, so the packer's arithmetic and the drawn
-    // height agree: two tile rows plus the gap that would sit between them.
     container(column)
         .padding(spacing.padding())
         .width(Length::Fill)
-        .height(Length::Fixed(
-            tile_height(spacing) * 2.0 + f32::from(spacing.gap),
-        ))
+        .height(Length::Fixed(height))
         .class(theme::Container::Primary)
         .into()
+}
+
+/// Height of a Tall cell in the popup: two tile rows plus the gap between
+/// them, so the packer's arithmetic and the drawn height agree.
+pub fn tall_height(spacing: Spacing) -> f32 {
+    tile_height(spacing) * 2.0 + f32::from(spacing.gap)
 }
 
 /// Characters of a row's name the narrow Connectivity tile can show.
