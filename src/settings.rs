@@ -90,12 +90,13 @@ const HANDLE_ICON: u16 = 14;
 /// Three states, and they have to stay visually distinct:
 ///
 /// * **Selected** — drawn plainly. It is in the grid; nothing to say.
-/// * **Not selected** — dimmed behind a dashed outline. Dimming rather than
-///   removal, because a tile that vanishes when switched off leaves nowhere
-///   to switch it back on. Dashed rather than accented, because the accent
-///   already means "this control is on" inside the tile itself, and reusing
-///   it here would make a switched-off Wi-Fi tile and an excluded one look
-///   the same.
+/// * **Not selected** — a plain outline. Now that hidden tiles live in their
+///   own "Not shown" grid the heading carries most of the meaning, but the
+///   tiles still need to read as inert at a glance. Not accented, because
+///   the accent already means "this control is on" inside the tile, and
+///   reusing it would make a switched-off Wi-Fi tile and an excluded one
+///   look the same. (iced draws no dashed borders; an earlier note here said
+///   "dashed" and was wrong.)
 /// * **Being dragged** — a solid accent outline, so the tile the grid is
 ///   shuffling around is unmistakable.
 fn preview_frame(
@@ -122,26 +123,21 @@ fn preview_frame(
         return tile;
     }
 
-    // iced has no opacity on an arbitrary element, so "dimmed" is a wash of
-    // the background colour laid over the tile by the container's own
-    // background — the tile keeps its colours, the wash mutes them.
+    // A container's background paints *under* its child, not over it, so a
+    // "wash" here cannot mute the tile — a 0.55 wash was tried and on a dark
+    // theme the hidden tiles were indistinguishable from the shown ones.
+    // What a container can do is outline, so the inert state is an outline
+    // strong enough to see: half-strength foreground, two pixels.
     container(tile)
         .class(cosmic::theme::Container::Custom(Box::new(|theme| {
             let cosmic = theme.cosmic();
-            let mut wash = cosmic.bg_color();
-            wash.alpha = 0.55;
+            let mut edge = cosmic.on_bg_color();
+            edge.alpha = 0.5;
             cosmic::widget::container::Style {
-                background: Some(cosmic::iced::Background::Color(cosmic::iced::Color::from(
-                    wash,
-                ))),
                 border: cosmic::iced::Border {
                     radius: cosmic.corner_radii.radius_s.into(),
-                    width: 1.0,
-                    color: cosmic::iced::Color::from({
-                        let mut edge = cosmic.on_bg_color();
-                        edge.alpha = 0.25;
-                        edge
-                    }),
+                    width: 2.0,
+                    color: cosmic::iced::Color::from(edge),
                 },
                 ..Default::default()
             }
