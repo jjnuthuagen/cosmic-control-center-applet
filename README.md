@@ -39,11 +39,12 @@ The packer keeps your order. A Wide tile behind a Small one leaves a ghost
 slot to the Small's right rather than swapping them — so when you move a
 tile, it lands where you put it.
 
-**Choosing and rearranging:** right-click the panel button → Tiles. Tap a
-tile to add or remove it — dimmed tiles are not in the grid. Drag one across
-and the others make room; drop it where you want it. The order is written to
-`config.toml` as `[appearance] order = […]`, and the selection as the
-`[modules]` flags; both can be edited by hand.
+**Choosing and rearranging:** right-click the panel button → Tiles. The grid
+at the top is exactly what the popup draws, in that order. Tap a tile to move
+it to **Not shown** underneath; tap it there to bring it back. Drag a tile by
+its handle and the others make room; drop it where you want it. The order is
+written to `config.toml` as `[appearance] order = […]`, and the selection as
+the `[modules]` flags; both can be edited by hand.
 
 The group and the individual tiles are independent switches, so you can have
 whichever suits: `connectivity` draws the grouped tile, and `wifi`,
