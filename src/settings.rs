@@ -23,8 +23,8 @@ use crate::config::{Config, PanelIcon, TileStyle};
 use crate::fl;
 use crate::tile_layout::{TileKey, TileShape};
 use crate::ui::{
-    connectivity_tile, icons, tile_grid, wide_slider_tile, ConnectivityRow, SliderMode, Spacing,
-    Tile,
+    connectivity_tile, icons, tile_grid, wide_slider_tile, ConnectivityRow, Ghosts, SliderMode,
+    Spacing, Tile,
 };
 
 const WINDOW_WIDTH: f32 = 560.0;
@@ -456,13 +456,13 @@ impl Settings {
             }
         }
 
-        section = section.push(tile_grid(shown, theme_spacing));
+        section = section.push(tile_grid(slotted(shown), Ghosts::Visible, theme_spacing));
 
         if !hidden.is_empty() {
             section = section
                 .push(text::title4(fl!("settings-hidden")))
                 .push(text::caption(fl!("settings-hidden-detail")))
-                .push(tile_grid(hidden, theme_spacing));
+                .push(tile_grid(slotted(hidden), Ghosts::Visible, theme_spacing));
         }
         section.into()
     }
@@ -1032,4 +1032,21 @@ pub fn window_settings() -> cosmic::app::Settings {
         .size(cosmic::iced::Size::new(WINDOW_WIDTH, WINDOW_HEIGHT))
         .resizable(Some(8.0))
         .debug(false)
+}
+
+/// Bridge the preview's ordered (element, shape) list onto the position-driven
+/// grid renderer, by packing it the way 0.1.6 did.
+///
+/// Temporary: this page is rebuilt around free placement next, at which point
+/// the slots come from the layout itself and this goes away.
+fn slotted<'a, Msg>(
+    tiles: Vec<(Element<'a, Msg>, TileShape)>,
+) -> Vec<(Element<'a, Msg>, crate::tile_layout::Slot)> {
+    let shapes: Vec<TileShape> = tiles.iter().map(|(_, shape)| *shape).collect();
+    let slots = crate::tile_layout::packed_slots(&shapes);
+    tiles
+        .into_iter()
+        .map(|(element, _)| element)
+        .zip(slots)
+        .collect()
 }

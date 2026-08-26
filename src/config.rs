@@ -253,11 +253,15 @@ impl Config {
     pub fn migrated(mut self) -> Self {
         use crate::tile_layout as tl;
         if self.appearance.layout.is_empty() {
-            self.appearance.layout = tl::migrate_from_packed(&self.appearance.order, &self.appearance.shapes, |k| {
-                self.module_enabled(k)
-            });
+            self.appearance.layout =
+                tl::migrate_from_packed(&self.appearance.order, &self.appearance.shapes, |k| {
+                    self.module_enabled(k)
+                });
             if !self.appearance.order.is_empty() || !self.appearance.shapes.is_empty() {
-                tracing::info!("migrated `order`/`shapes` into {} layout instances", self.appearance.layout.len());
+                tracing::info!(
+                    "migrated `order`/`shapes` into {} layout instances",
+                    self.appearance.layout.len()
+                );
             }
         } else {
             self.appearance.layout = tl::validate(&self.appearance.layout);
@@ -405,9 +409,10 @@ wifi = false
         let before = parsed.clone();
         let migrated = parsed.migrated();
 
-        let expected = migrate_from_packed(&before.appearance.order, &before.appearance.shapes, |k| {
-            before.module_enabled(k)
-        });
+        let expected =
+            migrate_from_packed(&before.appearance.order, &before.appearance.shapes, |k| {
+                before.module_enabled(k)
+            });
         assert_eq!(migrated.appearance.layout, expected);
         assert_eq!(migrated.appearance.layout[0].control, TileKey::Volume);
         assert_eq!(migrated.appearance.layout[1].shape, TileShape::Half);

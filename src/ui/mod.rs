@@ -25,7 +25,7 @@ use cosmic::widget::{
 use cosmic::{theme, Element};
 
 use crate::config::TileStyle;
-use crate::tile_layout::{pack, TileShape, GRID_COLUMNS};
+use crate::tile_layout::Slot;
 
 /// Icon size inside a tile and a list row.
 pub const ICON_SIZE: u16 = 20;
@@ -359,30 +359,55 @@ pub fn ghost_tile<'a, Msg: 'a>(spacing: Spacing) -> Element<'a, Msg> {
         .into()
 }
 
-/// Pack shaped tiles into a two-column grid.
+/// What to draw in a cell no instance covers.
+///
+/// The gap is the same hole in both surfaces; only its treatment differs, so
+/// this is a flag on one renderer rather than two renderers that can drift.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Ghosts {
+    /// The popup: a gap the user left is plain background.
+    Empty,
+    /// Settings: a faint slot, so the drop targets are visible.
+    Visible,
+}
+
+impl Ghosts {
+    fn draw<'a, Msg: 'static>(self, spacing: Spacing) -> Element<'a, Msg> {
+        match self {
+            Ghosts::Empty => cosmic::widget::Space::new()
+                .width(Length::Fill)
+                .height(Length::Fill)
+                .into(),
+            Ghosts::Visible => ghost_tile(spacing),
+        }
+    }
+}
+
+/// Draw placed tiles as a grid of bands.
 ///
 /// Returns a single `Element` — a column of bands — that the popup's page
 /// pushes into whatever column is above it. No grid widget: libcosmic's
 /// `Grid` is taffy, and taffy gives a spanning item's width to the first
 /// track it spans, which made a Wide tile eat column two. Plain rows and
-/// columns express the packer's placements exactly; see
-/// [`crate::tile_layout::bands`] for the split.
+/// columns express the placements exactly; see [`crate::tile_layout::bands`]
+/// for the split.
 ///
 /// Rules the caller relies on:
 ///
-///  * The tile at index `i` in `tiles` is drawn where `pack` put it. Nothing
-///    reorders. A Wide behind a Small leaves a ghost to the Small's right,
-///    not a swap.
-///  * A shape whose footprint cannot fit (a Wide in a one-column grid) is
-///    dropped by the packer — not drawn — rather than panicking.
+///  * Each tile is drawn at its instance's own cell. Nothing reorders and
+///    nothing is packed — a gap between two tiles is drawn as a gap.
+///  * Cells no instance covers become ghosts, drawn per `ghosts`.
+///  * The layout must be validated ([`crate::tile_layout::validate`]);
+///    overlapping instances are not a grid the band cutter can express.
 pub fn tile_grid<'a, Msg: Clone + 'static>(
-    tiles: Vec<(Element<'a, Msg>, TileShape)>,
+    tiles: Vec<(Element<'a, Msg>, Slot)>,
+    ghosts: Ghosts,
     spacing: Spacing,
 ) -> Element<'a, Msg> {
-    use crate::tile_layout::{bands, Entry};
+    use crate::tile_layout::{bands, place, Entry};
 
-    let shapes: Vec<TileShape> = tiles.iter().map(|(_, shape)| *shape).collect();
-    let packed = pack(&shapes, GRID_COLUMNS);
+    let slots: Vec<Slot> = tiles.iter().map(|(_, slot)| *slot).collect();
+    let packed = place(&slots);
     let layout = bands(&packed);
 
     // Take elements out by index as the bands ask for them. `Option` so each
@@ -396,8 +421,8 @@ pub fn tile_grid<'a, Msg: Clone + 'static>(
             Entry::Tile(i) => slots
                 .get_mut(i)
                 .and_then(Option::take)
-                .unwrap_or_else(|| ghost_tile(spacing)),
-            Entry::Ghost => ghost_tile(spacing),
+                .unwrap_or_else(|| ghosts.draw(spacing)),
+            Entry::Ghost => ghosts.draw(spacing),
         }
     };
 

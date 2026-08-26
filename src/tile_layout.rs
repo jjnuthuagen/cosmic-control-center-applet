@@ -486,7 +486,6 @@ pub fn pack(shapes: &[TileShape], columns: u16) -> Pack {
     }
 }
 
-
 /// One placed tile: a control, the shape it is drawn at, and where its
 /// top-left cell sits.
 ///
@@ -504,19 +503,25 @@ pub struct Instance {
     pub row: u16,
 }
 
-impl Instance {
-    pub fn new(control: TileKey, shape: TileShape, col: u16, row: u16) -> Self {
-        Self {
-            control,
-            shape,
-            col,
-            row,
-        }
+/// Where something sits on the grid, without saying what it is.
+///
+/// The render path needs a footprint and a top-left cell and nothing else, so
+/// this is what it takes. Custom tiles have no [`TileKey`] — giving them a
+/// borrowed one just to be drawn would put a lie in the layout — and they
+/// have a `Slot` like everything else.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct Slot {
+    pub shape: TileShape,
+    pub col: u16,
+    pub row: u16,
+}
+
+impl Slot {
+    pub fn new(shape: TileShape, col: u16, row: u16) -> Self {
+        Self { shape, col, row }
     }
 
-    /// The 1-based placement the band cutter draws this instance at.
-    // Used by the render path in the next commit of this series.
-    #[allow(dead_code)]
+    /// The 1-based placement the band cutter draws this slot at.
     pub fn placement(self) -> Placement {
         Placement {
             column: self.col + 1,
@@ -537,14 +542,41 @@ impl Instance {
     }
 }
 
+impl Instance {
+    pub fn new(control: TileKey, shape: TileShape, col: u16, row: u16) -> Self {
+        Self {
+            control,
+            shape,
+            col,
+            row,
+        }
+    }
+
+    /// This instance's footprint, with the control forgotten.
+    pub fn slot(self) -> Slot {
+        Slot::new(self.shape, self.col, self.row)
+    }
+
+    /// The 1-based placement the band cutter draws this instance at.
+    // The render path goes through `slot()`; this is the convenience the
+    // migration tests compare against the packer's own output.
+    #[cfg(test)]
+    pub fn placement(self) -> Placement {
+        self.slot().placement()
+    }
+
+    fn cells(self) -> impl Iterator<Item = (u16, u16)> {
+        self.slot().cells()
+    }
+}
+
 /// Whether a `shape` dropped with its top-left at (`col`, `row`) would land
 /// entirely on free, in-bounds cells of `layout`.
 ///
 /// This is what a drop consults. Rows are unbounded, so only the column edge
 /// can be out of bounds.
 pub fn free_at(layout: &[Instance], shape: TileShape, col: u16, row: u16) -> bool {
-    // The control is irrelevant to geometry; any key will do.
-    let probe = Instance::new(TileKey::Battery, shape, col, row);
+    let probe = Slot::new(shape, col, row);
     if !probe.in_bounds() {
         return false;
     }
@@ -583,7 +615,7 @@ pub fn first_free(layout: &[Instance], shape: TileShape) -> (u16, u16) {
 pub fn validate(layout: &[Instance]) -> Vec<Instance> {
     let mut kept: Vec<Instance> = Vec::with_capacity(layout.len());
     for &instance in layout {
-        if !instance.in_bounds() {
+        if !instance.slot().in_bounds() {
             tracing::warn!("dropping {instance:?}: past the right edge of the grid");
             continue;
         }
@@ -617,6 +649,71 @@ pub fn migrate_from_packed(
         .collect()
 }
 
+/// Turn placed instances into the [`Pack`] the band cutter consumes.
+///
+/// The inverse of the packer's job: positions are already decided, so this
+/// only writes them out and fills every uncovered cell with a one-sub-column
+/// ghost. `bands` then cuts the same way it always did — one layout engine for
+/// the popup and Settings both.
+///
+/// Assumes a validated layout; overlapping instances would produce a grid the
+/// band cutter cannot express. [`validate`] is what guarantees that.
+pub fn place(layout: &[Slot]) -> Pack {
+    let rows = layout
+        .iter()
+        .map(|i| i.row + i.shape.rows() as u16)
+        .max()
+        .unwrap_or(0);
+
+    let taken: std::collections::HashSet<(u16, u16)> =
+        layout.iter().flat_map(|i| i.cells()).collect();
+
+    let ghosts = (0..rows)
+        .flat_map(|row| {
+            let taken = &taken;
+            (0..GRID_COLUMNS).filter_map(move |col| {
+                (!taken.contains(&(col, row))).then_some(Placement {
+                    column: col + 1,
+                    row: row + 1,
+                    width: 1,
+                    height: 1,
+                })
+            })
+        })
+        .collect();
+
+    Pack {
+        tiles: layout.iter().map(|s| s.placement()).collect(),
+        ghosts,
+        rows,
+    }
+}
+
+/// Slots for shapes laid out by the old packer.
+///
+/// **Temporary.** The Settings preview still thinks in an ordered list of
+/// shapes; this bridges it onto the position-driven renderer until that page
+/// is rebuilt around instances. Nothing else should reach for it.
+pub fn packed_slots(shapes: &[TileShape]) -> Vec<Slot> {
+    pack(shapes, GRID_COLUMNS)
+        .tiles
+        .into_iter()
+        .map(Slot::new_from_placement)
+        .collect()
+}
+
+impl Slot {
+    fn new_from_placement(p: Placement) -> Self {
+        let shape = match (p.width, p.height) {
+            (1, _) => TileShape::Half,
+            (4, _) => TileShape::Wide,
+            (_, 2) => TileShape::Tall,
+            _ => TileShape::Small,
+        };
+        Slot::new(shape, p.column - 1, p.row - 1)
+    }
+}
+
 #[cfg(test)]
 mod instance_tests {
     use super::*;
@@ -625,6 +722,10 @@ mod instance_tests {
 
     fn at(control: TileKey, shape: TileShape, col: u16, row: u16) -> Instance {
         Instance::new(control, shape, col, row)
+    }
+
+    fn slots(layout: &[Instance]) -> Vec<Slot> {
+        layout.iter().map(|i| i.slot()).collect()
     }
 
     #[test]
@@ -644,7 +745,7 @@ mod instance_tests {
         assert!(free_at(&layout, Half, 2, 0)); // right beside it
         assert!(!free_at(&layout, Wide, 0, 0)); // spans it
         assert!(free_at(&layout, Wide, 0, 1)); // row below
-        // A Tall from the row above reaches down into row 1.
+                                               // A Tall from the row above reaches down into row 1.
         let tall = [at(Volume, Tall, 0, 0)];
         assert!(!free_at(&tall, Small, 0, 1));
         assert!(free_at(&tall, Small, 2, 1));
@@ -664,14 +765,18 @@ mod instance_tests {
     fn validate_drops_overlaps_first_wins_and_keeps_gaps() {
         let layout = [
             at(Battery, Small, 0, 0),
-            at(Dns, Small, 1, 0), // overlaps Battery
-            at(Dns, Small, 2, 0), // fine
+            at(Dns, Small, 1, 0),   // overlaps Battery
+            at(Dns, Small, 2, 0),   // fine
             at(Volume, Wide, 0, 5), // gap rows 1–4 kept, not packed
         ];
         let kept = validate(&layout);
         assert_eq!(
             kept,
-            vec![at(Battery, Small, 0, 0), at(Dns, Small, 2, 0), at(Volume, Wide, 0, 5)]
+            vec![
+                at(Battery, Small, 0, 0),
+                at(Dns, Small, 2, 0),
+                at(Volume, Wide, 0, 5)
+            ]
         );
     }
 
@@ -699,7 +804,10 @@ mod instance_tests {
 
         let keys = resolve_order(&order, |k| !off.contains(&k));
         let packed = pack(
-            &keys.iter().map(|k| k.shape_with(&shapes)).collect::<Vec<_>>(),
+            &keys
+                .iter()
+                .map(|k| k.shape_with(&shapes))
+                .collect::<Vec<_>>(),
             GRID_COLUMNS,
         );
         assert_eq!(layout.len(), keys.len());
@@ -712,6 +820,50 @@ mod instance_tests {
         assert!(!layout.iter().any(|i| off.contains(&i.control)));
         // The packer never overlaps, so validate is a no-op on its output.
         assert_eq!(validate(&layout), layout);
+    }
+
+    #[test]
+    fn place_matches_the_packer_on_a_gap_free_layout() {
+        // The migration path: what the packer produced, fed back through
+        // place(), must be the same Pack — same tiles, same ghosts, same rows.
+        let shapes = [Wide, Half, Small, Tall, Small];
+        let packed = pack(&shapes, GRID_COLUMNS);
+        let layout: Vec<Instance> = shapes
+            .iter()
+            .zip(&packed.tiles)
+            .map(|(&shape, p)| Instance::new(Battery, shape, p.column - 1, p.row - 1))
+            .collect();
+        assert_eq!(place(&slots(&layout)), packed);
+    }
+
+    #[test]
+    fn place_turns_a_kept_gap_into_ghosts_rather_than_closing_it() {
+        // Free placement's whole point: the empty row stays empty.
+        let layout = [at(Battery, Small, 0, 0), at(Dns, Small, 2, 2)];
+        let packed = place(&slots(&layout));
+        assert_eq!(packed.rows, 3);
+        assert_eq!(packed.tiles.len(), 2);
+        // Row 1 is entirely ghosts, and so is the half-row beside each tile.
+        assert_eq!(packed.ghosts.len(), 4 + 2 + 2);
+        assert!(packed.ghosts.iter().all(|g| g.width == 1 && g.height == 1));
+        // Every cell of the bounding box is covered exactly once.
+        let cells: std::collections::HashSet<(u16, u16)> = packed
+            .tiles
+            .iter()
+            .chain(&packed.ghosts)
+            .flat_map(|p| {
+                (p.column..p.column + p.width)
+                    .flat_map(move |c| (p.row..p.row + p.height).map(move |r| (c, r)))
+            })
+            .collect();
+        assert_eq!(cells.len(), (GRID_COLUMNS * 3) as usize);
+    }
+
+    #[test]
+    fn an_empty_layout_places_nothing() {
+        let packed = place(&[]);
+        assert_eq!(packed.rows, 0);
+        assert!(packed.tiles.is_empty() && packed.ghosts.is_empty());
     }
 
     #[test]
@@ -728,7 +880,10 @@ mod instance_tests {
         let decoded: Wrap = toml::from_str(&encoded).unwrap();
         assert_eq!(decoded, original);
         // A typo in an instance is rejected, not ignored.
-        assert!(toml::from_str::<Wrap>("[[layout]]\ncontrol=\"battery\"\nshape=\"small\"\ncol=0\nrow=0\nrwo=1\n").is_err());
+        assert!(toml::from_str::<Wrap>(
+            "[[layout]]\ncontrol=\"battery\"\nshape=\"small\"\ncol=0\nrow=0\nrwo=1\n"
+        )
+        .is_err());
     }
 }
 

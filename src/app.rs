@@ -23,7 +23,7 @@ use crate::modules::{
     battery, bluetooth, brightness, caffeine, custom, dns, gamemode, keyboard, media, network,
     system, tiling, volume, vpn,
 };
-use crate::tile_layout::{resolve_order, TileKey, TileShape};
+use crate::tile_layout::{TileKey, TileShape};
 use crate::ui::{
     connectivity_tile, icons, list_row, page_header, scrollable_page, tile_grid, toggle_row,
     wide_slider_tile, ConnectivityRow, SliderMode, Spacing, Tile,
@@ -184,7 +184,7 @@ impl App {
         // and it must not look at the standalone tiles' flags: the group and
         // the standalone tiles are independent choices — have both, either,
         // or neither.
-        self.config.modules.connectivity
+        self.placed(TileKey::Connectivity)
     }
 
     // Rows inside the group gate on the hardware alone. The `wifi` flag is
@@ -204,39 +204,39 @@ impl App {
 
     // The standalone tiles are independent of the group: on, off, or both.
     fn show_wifi(&self) -> bool {
-        self.config.modules.wifi && self.wifi_available()
+        self.placed(TileKey::Wifi) && self.wifi_available()
     }
 
     fn show_bluetooth(&self) -> bool {
-        self.config.modules.bluetooth && self.bluetooth_available()
+        self.placed(TileKey::Bluetooth) && self.bluetooth_available()
     }
 
     fn show_battery(&self) -> bool {
-        self.config.modules.battery && self.battery.is_shown()
+        self.placed(TileKey::Battery) && self.battery.is_shown()
     }
 
     fn show_dns(&self) -> bool {
-        self.config.modules.dns && self.dns.availability.is_shown()
+        self.placed(TileKey::Dns) && self.dns.availability.is_shown()
     }
 
     fn show_volume(&self) -> bool {
-        self.config.modules.volume && self.volume.availability.is_shown()
+        self.placed(TileKey::Volume) && self.volume.availability.is_shown()
     }
 
     fn show_brightness(&self) -> bool {
-        self.config.modules.brightness && self.brightness.availability.is_shown()
+        self.placed(TileKey::Brightness) && self.brightness.availability.is_shown()
     }
 
     fn show_dark_mode(&self) -> bool {
-        self.config.modules.dark_mode && self.system.availability.is_shown()
+        self.placed(TileKey::DarkMode) && self.system.availability.is_shown()
     }
 
     fn show_microphone(&self) -> bool {
-        self.config.modules.microphone && self.microphone.availability.is_shown()
+        self.placed(TileKey::Microphone) && self.microphone.availability.is_shown()
     }
 
     fn show_keyboard(&self) -> bool {
-        self.config.modules.keyboard_backlight && self.keyboard.availability.is_shown()
+        self.placed(TileKey::KeyboardBacklight) && self.keyboard.availability.is_shown()
     }
 
     fn show_media(&self) -> bool {
@@ -244,19 +244,19 @@ impl App {
     }
 
     fn show_vpn(&self) -> bool {
-        self.config.modules.vpn && self.vpn_available()
+        self.placed(TileKey::Vpn) && self.vpn_available()
     }
 
     fn show_keep_awake(&self) -> bool {
-        self.config.modules.keep_awake && self.caffeine.availability.is_shown()
+        self.placed(TileKey::KeepAwake) && self.caffeine.availability.is_shown()
     }
 
     fn show_do_not_disturb(&self) -> bool {
-        self.config.modules.do_not_disturb && self.system.dnd_available
+        self.placed(TileKey::DoNotDisturb) && self.system.dnd_available
     }
 
     fn show_tiling(&self) -> bool {
-        self.config.modules.tiling && self.tiling.availability.is_shown()
+        self.placed(TileKey::Tiling) && self.tiling.availability.is_shown()
     }
 
     // -- Root -----------------------------------------------------------------
@@ -303,9 +303,51 @@ impl App {
         }
     }
 
-    /// The shape a tile draws at: the user's override, else its default.
+    /// Every placed instance of this control, in layout order.
+    ///
+    /// A control can appear several times, at several sizes — that is the
+    /// point of the instance model — so callers that need "is it shown at
+    /// all" want [`Self::placed`] and callers that draw want this.
+    fn instances_of(&self, key: TileKey) -> impl Iterator<Item = &crate::tile_layout::Instance> {
+        self.config
+            .appearance
+            .layout
+            .iter()
+            .filter(move |i| i.control == key)
+    }
+
+    /// Whether this control is in the layout at all.
+    ///
+    /// **Derived selection**: this replaced the `[modules]` on/off switch for
+    /// every control that is a tile. A control is shown because the user put
+    /// it on the grid, not because a second switch elsewhere also agrees.
+    fn placed(&self, key: TileKey) -> bool {
+        self.instances_of(key).next().is_some()
+    }
+
+    /// Whether this control's backend has a consumer.
+    ///
+    /// Same as [`Self::placed`], except that the Connectivity group draws
+    /// Wi-Fi, Bluetooth and VPN rows of its own — so a placed group keeps
+    /// those three modules alive even with no standalone tile. This one rule
+    /// is what the old `show_connectivity` / `|| connectivity` guards
+    /// collapsed into.
+    fn wanted(&self, key: TileKey) -> bool {
+        let via_group = matches!(key, TileKey::Wifi | TileKey::Bluetooth | TileKey::Vpn)
+            && self.placed(TileKey::Connectivity);
+        self.placed(key) || via_group
+    }
+
+    /// The shape the *first* instance of a control draws at.
+    ///
+    /// Only tiles whose body changes with their footprint (the `compact`
+    /// icon-only form) ask this, and they ask while being built once per
+    /// instance — see `root_page`, which passes each instance's own shape.
     fn shape_of(&self, key: TileKey) -> TileShape {
-        key.shape_with(&self.config.appearance.shapes)
+        self.instances_of(key)
+            .next()
+            .map(|i| i.shape)
+            .unwrap_or_else(|| key.default_shape())
     }
 
     /// The Wide Connectivity tile, with one row per available module.
@@ -378,7 +420,8 @@ impl App {
         // disagree — which they did, silently, leaving the sliders narrow and
         // Connectivity wide after both were reshaped.
         let mut keyed: Vec<(TileKey, Element<'_, Message>)> = Vec::with_capacity(16);
-        let mut tiles: Vec<(Element<'_, Message>, TileShape)> = Vec::with_capacity(16);
+        let mut tiles: Vec<(Element<'_, Message>, crate::tile_layout::Slot)> =
+            Vec::with_capacity(16);
 
         if self.show_connectivity() {
             keyed.push((TileKey::Connectivity, self.connectivity_tile(spacing)));
@@ -641,27 +684,35 @@ impl App {
             ));
         }
 
-        // `resolve_order` never drops a key that is present — a key it yields
-        // but `keyed` lacks is a module this machine has no hardware for.
-        let present: Vec<TileKey> = keyed.iter().map(|(k, _)| *k).collect();
-        let order = resolve_order(&self.config.appearance.order, |k| present.contains(&k));
-        for key in order {
-            if let Some(i) = keyed.iter().position(|(k, _)| *k == key) {
-                let (key, element) = keyed.swap_remove(i);
-                tiles.push((element, self.shape_of(key)));
+        // One element per *instance*: two Batteries are two tiles. A control
+        // whose element was never built is one this machine has no hardware
+        // for — its instances are skipped, leaving a gap rather than a hole
+        // the band cutter cannot express, because `place` ghosts every cell
+        // no drawn instance covers.
+        for instance in &self.config.appearance.layout {
+            if let Some(i) = keyed.iter().position(|(k, _)| *k == instance.control) {
+                let (_, element) = keyed.swap_remove(i);
+                tiles.push((element, instance.slot()));
             }
         }
-        // Anything `keyed` still holds is a key not in DEFAULT_ORDER — that
-        // cannot happen today (every popup tile has a default slot) but if it
-        // does, draw it rather than lose it.
-        for (key, element) in keyed {
-            tiles.push((element, key.default_shape()));
+        // Custom tiles have no TileKey, so they are not yet part of the
+        // layout: they keep their index-addressed model and land in the first
+        // free cells after everything placed. They join the palette proper
+        // later in this series.
+        for (element, shape) in custom_tiles {
+            let placed: Vec<crate::tile_layout::Instance> = tiles
+                .iter()
+                .map(|(_, s)| {
+                    crate::tile_layout::Instance::new(TileKey::Media, s.shape, s.col, s.row)
+                })
+                .collect();
+            let (col, row) = crate::tile_layout::first_free(&placed, shape);
+            tiles.push((element, crate::tile_layout::Slot::new(shape, col, row)));
         }
-        tiles.extend(custom_tiles);
 
         let mut content = column::with_capacity(4).spacing(spacing.section);
         if !tiles.is_empty() {
-            content = content.push(tile_grid(tiles, spacing));
+            content = content.push(tile_grid(tiles, crate::ui::Ghosts::Empty, spacing));
         }
 
         // Media stays a full-width row underneath: it has three buttons and a
@@ -1581,42 +1632,42 @@ impl Application for App {
         // cosmetic fix to a resource problem.
         // Either consumer keeps the module alive: the standalone tile or
         // a row inside the Connectivity group.
-        if self.config.modules.wifi || self.config.modules.connectivity {
+        if self.wanted(TileKey::Wifi) {
             subscriptions.push(self.wifi.subscription().map(Message::Wifi));
         }
         // Either consumer keeps the module alive: the standalone tile or
         // a row inside the Connectivity group.
-        if self.config.modules.bluetooth || self.config.modules.connectivity {
+        if self.wanted(TileKey::Bluetooth) {
             subscriptions.push(self.bluetooth.subscription().map(Message::Bluetooth));
         }
-        if self.config.modules.battery {
+        if self.wanted(TileKey::Battery) {
             subscriptions.push(self.battery.subscription().map(Message::Battery));
         }
-        if self.config.modules.dns {
+        if self.wanted(TileKey::Dns) {
             subscriptions.push(self.dns.subscription().map(Message::Dns));
         }
         // The polled modules only need sampling while the popup is open —
         // nothing else displays their value, and polling a closed popup is pure
         // idle wakeups on a laptop.
-        if self.config.modules.volume && open {
+        if self.wanted(TileKey::Volume) && open {
             subscriptions.push(self.volume.subscription().map(Message::Volume));
         }
-        if self.config.modules.brightness && open {
+        if self.wanted(TileKey::Brightness) && open {
             subscriptions.push(self.brightness.subscription().map(Message::Brightness));
         }
-        if self.config.modules.dark_mode && open {
+        if self.wanted(TileKey::DarkMode) && open {
             subscriptions.push(self.system.subscription().map(Message::System));
         }
-        if self.config.modules.tiling && open {
+        if self.wanted(TileKey::Tiling) && open {
             subscriptions.push(self.tiling.subscription().map(Message::Tiling));
         }
         if self.config.modules.gamemode && open {
             subscriptions.push(self.gamemode.subscription().map(Message::GameMode));
         }
-        if self.config.modules.microphone && open {
+        if self.wanted(TileKey::Microphone) && open {
             subscriptions.push(self.microphone.subscription().map(Message::Microphone));
         }
-        if self.config.modules.keyboard_backlight && open {
+        if self.wanted(TileKey::KeyboardBacklight) && open {
             subscriptions.push(self.keyboard.subscription().map(Message::Keyboard));
         }
         if self.config.modules.media && open {
@@ -1626,7 +1677,7 @@ impl Application for App {
                     .map(Message::Media),
             );
         }
-        if self.config.modules.keep_awake && open {
+        if self.wanted(TileKey::KeepAwake) && open {
             subscriptions.push(self.caffeine.subscription().map(Message::Caffeine));
         }
         // VPN state is signal-free, so it polls — but unlike the others it must
@@ -1634,7 +1685,7 @@ impl Application for App {
         // stale connection the moment it reopens.
         // Either consumer keeps the module alive: the standalone tile or
         // a row inside the Connectivity group.
-        if self.config.modules.vpn || self.config.modules.connectivity {
+        if self.wanted(TileKey::Vpn) {
             subscriptions.push(self.vpn.subscription().map(Message::Vpn));
         }
 
