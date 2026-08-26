@@ -588,7 +588,7 @@ pub fn connectivity_tile<'a, Msg: Clone + 'static>(
                 .class(if signalled && style == TileStyle::High {
                     button::ButtonClass::Suggested
                 } else {
-                    button::ButtonClass::Text
+                    quiet_button()
                 })
                 .width(Length::Fill)
                 .on_press(msg)
@@ -609,6 +609,49 @@ pub fn connectivity_tile<'a, Msg: Clone + 'static>(
         .height(Length::Fixed(height))
         .class(tile_surface())
         .into()
+}
+
+/// A button that behaves like one but is coloured like the surface it sits on.
+///
+/// The Connectivity rows are buttons inside a card that is already a tile.
+/// `ButtonClass::Text` was the obvious fit and is wrong: libcosmic paints it
+/// from `cosmic.text_button`, which is the **accent** colour, so the rows'
+/// labels and glyphs came out accented while every other tile — a `Standard`
+/// button, which leaves `text_color` and `icon_color` unset so they inherit —
+/// stayed neutral. `Transparent` is no good either: it zeroes the text colour
+/// rather than leaving it alone, so the labels disappear.
+///
+/// So: no fill at rest, the standard button's own hover and pressed washes,
+/// and text and icon left to inherit exactly as `Standard` leaves them.
+fn quiet_button() -> button::ButtonClass {
+    fn base(
+        theme: &cosmic::Theme,
+        fill: Option<cosmic::cosmic_theme::palette::Srgba>,
+    ) -> button::Style {
+        let cosmic = theme.cosmic();
+        button::Style {
+            background: fill.map(|c| Background::Color(Color::from(c))),
+            border_radius: cosmic.corner_radii.radius_s.into(),
+            // Left as None on purpose — that is what makes the row inherit
+            // the tile's text and icon colour instead of being told one.
+            text_color: None,
+            icon_color: None,
+            ..button::Style::new()
+        }
+    }
+
+    button::ButtonClass::Custom {
+        active: Box::new(|_focused, theme| base(theme, None)),
+        disabled: Box::new(|theme| base(theme, None)),
+        hovered: Box::new(|_focused, theme| {
+            let hover = theme.cosmic().button.hover;
+            base(theme, Some(hover))
+        }),
+        pressed: Box::new(|_focused, theme| {
+            let pressed = theme.cosmic().button.pressed;
+            base(theme, Some(pressed))
+        }),
+    }
 }
 
 /// Height of a Tall cell in the popup: two tile rows plus the gap between
@@ -834,6 +877,44 @@ fn truncate(text: &str, max: usize) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_connectivity_row_inherits_its_colour_instead_of_being_accented() {
+        // The bug this pins: the rows were `ButtonClass::Text`, which
+        // libcosmic paints from `cosmic.text_button` — the accent colour — so
+        // a row's label and glyph came out accented while every other tile,
+        // being a `Standard` button, stayed neutral. A `Standard` button
+        // leaves text_color and icon_color unset; so must this.
+        use cosmic::widget::button::Catalog;
+
+        let theme = cosmic::Theme::dark();
+        let quiet = quiet_button();
+
+        for style in [
+            theme.active(false, false, &quiet),
+            theme.hovered(false, false, &quiet),
+            theme.pressed(false, false, &quiet),
+            theme.disabled(&quiet),
+        ] {
+            assert!(
+                style.text_color.is_none() && style.icon_color.is_none(),
+                "a row must inherit its colour, not be told one"
+            );
+        }
+
+        // Same as the standard tile button, which is the whole point.
+        let standard = theme.active(false, false, &cosmic::theme::Button::Standard);
+        assert!(standard.text_color.is_none() && standard.icon_color.is_none());
+
+        // And the class it replaced really does force a colour, so this test
+        // fails for the right reason if anyone switches back.
+        let text = theme.active(false, false, &cosmic::theme::Button::Text);
+        assert!(text.text_color.is_some());
+
+        // At rest it is the card underneath that shows, not a second fill.
+        assert!(theme.active(false, false, &quiet).background.is_none());
+        assert!(theme.hovered(false, false, &quiet).background.is_some());
+    }
 
     fn spacing() -> Spacing {
         // The standard-density values from cosmic-theme.
