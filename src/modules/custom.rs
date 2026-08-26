@@ -33,6 +33,19 @@ pub struct Tile {
     /// Optional second line, for whatever the name does not make obvious.
     #[serde(default)]
     pub detail: Option<String>,
+    /// The footprint this tile draws at.
+    ///
+    /// `half` is the icon-only form, four to a row — the right shape for a
+    /// launcher, where the glyph is the whole message and the name is in the
+    /// tooltip. Defaults to `small` so a config written before this field
+    /// existed draws exactly as it did.
+    ///
+    /// A custom tile has no [`crate::tile_layout::TileKey`], so unlike the
+    /// built-in controls there is no default shape to fall back to and no
+    /// `shape_with` rule to consult: whatever is written here is what is
+    /// drawn.
+    #[serde(default = "default_shape")]
+    pub shape: crate::tile_layout::TileShape,
     /// Whether the tile is drawn.
     ///
     /// Defaults to true, so a config written before this field existed keeps
@@ -46,6 +59,10 @@ pub struct Tile {
 
 fn enabled_by_default() -> bool {
     true
+}
+
+fn default_shape() -> crate::tile_layout::TileShape {
+    crate::tile_layout::TileShape::Small
 }
 
 fn default_icon() -> String {
@@ -160,8 +177,25 @@ mod tests {
             icon: default_icon(),
             command: command.into_iter().map(str::to_string).collect(),
             detail: None,
+            shape: default_shape(),
             enabled: true,
         }
+    }
+
+    #[test]
+    fn a_tile_without_a_shape_stays_the_plain_square() {
+        // A config written before `shape` existed must draw exactly as it did,
+        // so the default is Small rather than the icon-only Half.
+        let older: Tile = toml::from_str("name = \"X\"\ncommand = [\"true\"]\n").unwrap();
+        assert_eq!(older.shape, crate::tile_layout::TileShape::Small);
+
+        let launcher: Tile =
+            toml::from_str("name = \"X\"\ncommand = [\"true\"]\nshape = \"half\"\n").unwrap();
+        assert_eq!(launcher.shape, crate::tile_layout::TileShape::Half);
+
+        // And it round-trips, or the Settings window would drop it on save.
+        let encoded = toml::to_string(&launcher).unwrap();
+        assert_eq!(toml::from_str::<Tile>(&encoded).unwrap(), launcher);
     }
 
     #[test]

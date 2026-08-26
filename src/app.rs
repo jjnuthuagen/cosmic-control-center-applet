@@ -614,10 +614,11 @@ impl App {
                 )
                 .style(self.config.appearance.style)
                 .on_press(Message::RunCustom(index))
+                // Half is the icon-only form: the glyph is the whole tile and
+                // the name moves into the tooltip.
+                .compact(entry.shape == TileShape::Half)
                 .view(spacing),
-                // Custom tiles have no TileKey, so their shape is written
-                // here — they are always the plain square.
-                TileShape::Small,
+                entry.shape,
             ));
         }
 
