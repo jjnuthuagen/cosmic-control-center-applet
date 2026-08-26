@@ -327,6 +327,36 @@ fn icon_base<'a, Msg: 'static>(
         .into()
 }
 
+/// A ghost cell, optionally flashing because it just refused a drop.
+///
+/// The refusal has to be seen: a tile that snaps back with no other feedback
+/// reads as a dropped gesture rather than as "not there". A destructive-red
+/// wash on the cell that said no is the whole message.
+pub fn ghost_slot<'a, Msg: 'a>(refused: bool, spacing: Spacing) -> Element<'a, Msg> {
+    if !refused {
+        return ghost_tile(spacing);
+    }
+    container(cosmic::widget::Space::new().width(Length::Fill))
+        .height(Length::Fixed(tile_height(spacing)))
+        .width(Length::Fill)
+        .class(theme::Container::Custom(Box::new(|theme| {
+            let cosmic = theme.cosmic();
+            let mut fill = cosmic.destructive_color();
+            fill.alpha = 0.20;
+            let edge = cosmic.destructive_color();
+            container::Style {
+                background: Some(Background::Color(Color::from(fill))),
+                border: Border {
+                    radius: cosmic.corner_radii.radius_s.into(),
+                    width: 1.0,
+                    color: Color::from(edge),
+                },
+                ..Default::default()
+            }
+        })))
+        .into()
+}
+
 /// A placeholder occupying a grid cell that has no tile in it.
 ///
 /// Used only to keep a row square when an odd number of tiles is showing. It is
@@ -363,22 +393,29 @@ pub fn ghost_tile<'a, Msg: 'a>(spacing: Spacing) -> Element<'a, Msg> {
 ///
 /// The gap is the same hole in both surfaces; only its treatment differs, so
 /// this is a flag on one renderer rather than two renderers that can drift.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Ghosts {
+pub enum Ghosts<'a, Msg> {
     /// The popup: a gap the user left is plain background.
     Empty,
-    /// Settings: a faint slot, so the drop targets are visible.
+    /// A faint slot, so the gap reads as a place a tile could go.
+    ///
+    /// Kept for a read-only grid; the editable one builds its own gaps.
+    #[allow(dead_code)]
     Visible,
+    /// Settings while editing: the caller builds each empty cell itself,
+    /// from its 0-based (col, row), so a gap can be a drop target rather
+    /// than only a decoration.
+    Custom(Box<dyn Fn(u16, u16) -> Element<'a, Msg> + 'a>),
 }
 
-impl Ghosts {
-    fn draw<'a, Msg: 'static>(self, spacing: Spacing) -> Element<'a, Msg> {
+impl<'a, Msg: 'static> Ghosts<'a, Msg> {
+    fn draw(&self, col: u16, row: u16, spacing: Spacing) -> Element<'a, Msg> {
         match self {
             Ghosts::Empty => cosmic::widget::Space::new()
                 .width(Length::Fill)
                 .height(Length::Fill)
                 .into(),
             Ghosts::Visible => ghost_tile(spacing),
+            Ghosts::Custom(build) => build(col, row),
         }
     }
 }
@@ -401,7 +438,7 @@ impl Ghosts {
 ///    overlapping instances are not a grid the band cutter can express.
 pub fn tile_grid<'a, Msg: Clone + 'static>(
     tiles: Vec<(Element<'a, Msg>, Slot)>,
-    ghosts: Ghosts,
+    ghosts: Ghosts<'a, Msg>,
     spacing: Spacing,
 ) -> Element<'a, Msg> {
     use crate::tile_layout::{bands, place, Entry};
@@ -421,8 +458,8 @@ pub fn tile_grid<'a, Msg: Clone + 'static>(
             Entry::Tile(i) => slots
                 .get_mut(i)
                 .and_then(Option::take)
-                .unwrap_or_else(|| ghosts.draw(spacing)),
-            Entry::Ghost => ghosts.draw(spacing),
+                .unwrap_or_else(|| ghost_tile(spacing)),
+            Entry::Ghost(col, row) => ghosts.draw(col, row, spacing),
         }
     };
 

@@ -23,8 +23,8 @@ use crate::config::{Config, PanelIcon, TileStyle};
 use crate::fl;
 use crate::tile_layout::{TileKey, TileShape};
 use crate::ui::{
-    connectivity_tile, icons, tile_grid, wide_slider_tile, ConnectivityRow, Ghosts, SliderMode,
-    Spacing, Tile,
+    connectivity_tile, icons, tile_grid, wide_slider_tile, ConnectivityRow, SliderMode, Spacing,
+    Tile,
 };
 
 const WINDOW_WIDTH: f32 = 560.0;
@@ -38,51 +38,41 @@ const APP_ICON: &str = "io.github.jjnuthuagen.ControlCenter";
 
 const REPOSITORY: &str = env!("CARGO_PKG_REPOSITORY");
 
-/// The `[modules]` key that gates a tile, and the shape it packs as.
-fn preview_module_key(key: TileKey) -> &'static str {
-    match key {
-        TileKey::Connectivity => "connectivity",
-        TileKey::Wifi => "wifi",
-        TileKey::Bluetooth => "bluetooth",
-        TileKey::Vpn => "vpn",
-        TileKey::Battery => "battery",
-        TileKey::Dns => "dns",
-        TileKey::DarkMode => "dark_mode",
-        TileKey::Tiling => "tiling",
-        TileKey::GameMode => "gamemode",
-        TileKey::Media => "media",
-        TileKey::DoNotDisturb => "do_not_disturb",
-        TileKey::KeepAwake => "keep_awake",
-        TileKey::ChargeThreshold => "charge_threshold",
-        TileKey::KeyboardBacklight => "keyboard_backlight",
-        TileKey::Volume => "volume",
-        TileKey::Brightness => "brightness",
-        TileKey::Microphone => "microphone",
-    }
-}
-
-/// Lay a grab handle over a tile's top-right corner when `show` is set.
+/// Lay a red remove button over a tile's top-right corner when `show` is set.
 ///
-/// A `stack` rather than putting the handle inside the tile: the tiles here
-/// are the popup's own widgets, drawn so the preview is honest about what the
-/// grid looks like, and threading a Settings-only decoration through them
-/// would put Settings' concerns inside the thing being previewed.
-fn with_drag_handle(tile: Element<'_, Message>, show: bool, spacing: u16) -> Element<'_, Message> {
+/// The grid is what you edit and the palette is only ever a source, so removal
+/// lives here rather than as a second mode on the palette: you take a tile off
+/// the grid by pressing the − on that tile.
+///
+/// A real button rather than a `mouse_area` handler, so its press wins over
+/// the drag gesture underneath instead of racing it.
+fn with_remove_button(
+    tile: Element<'_, Message>,
+    show: bool,
+    index: usize,
+    spacing: u16,
+) -> Element<'_, Message> {
     if !show {
         return tile;
     }
 
-    let handle = container(cosmic::widget::icon::from_name(icons::drag_handle()).size(HANDLE_ICON))
+    let minus =
+        cosmic::widget::button::icon(cosmic::widget::icon::from_name("list-remove-symbolic"))
+            .icon_size(HANDLE_ICON)
+            .class(cosmic::theme::Button::Destructive)
+            .on_press(Message::RemoveInstance(index));
+
+    let overlay = container(minus)
         .padding(spacing / 2)
         .width(Length::Fill)
         .align_x(cosmic::iced::Alignment::End)
         .align_y(cosmic::iced::Alignment::Start);
 
-    cosmic::iced::widget::stack![tile, handle].into()
+    cosmic::iced::widget::stack![tile, overlay].into()
 }
 
-/// The grab handle's glyph size — smaller than a tile's own icon, because it
-/// is an affordance on top of the content rather than part of it.
+/// The remove button's glyph size — smaller than a tile's own icon, because
+/// it is an affordance on top of the content rather than part of it.
 const HANDLE_ICON: u16 = 14;
 
 /// A preview tile dressed for its state.
@@ -264,24 +254,21 @@ pub struct Settings {
     error: Option<String>,
     /// The tab bar's model, which owns which tab is showing.
     tabs: segmented_button::SingleSelectModel,
-    /// The tile the pointer went down on, if the button is still held.
+    /// The layout index of the instance being dragged, if the button is
+    /// still held.
+    picked: Option<usize>,
+    /// The instance under the pointer, so it can show its remove button.
+    hovered: Option<usize>,
+    /// The cell the pointer is currently over while dragging.
+    target: Option<(u16, u16)>,
+    /// A cell that refused a drop, flashed so the refusal is visible.
     ///
-    /// A press is only a *candidate* for either gesture. It becomes a drag the
-    /// moment the pointer enters a different tile, and a tap otherwise — which
-    /// is how one pointer button carries both selecting and reordering without
-    /// a modifier key.
-    pressed: Option<TileKey>,
-    /// Whether the held press has turned into a drag.
-    dragging: bool,
-    /// The tile under the pointer, so it can show its grab handle.
-    ///
-    /// A drag gesture nobody knows about is a drag gesture nobody uses: the
-    /// handle appearing under the pointer is what says the tiles move.
-    hovered: Option<TileKey>,
-    /// The order being edited while a tile is picked. Committed to config on
-    /// drop, discarded on cancel — so a cancelled move leaves the file as it
-    /// was rather than half-applied.
-    working_order: Vec<TileKey>,
+    /// Collisions refuse rather than push: nothing the user did not drag ever
+    /// moves. A refusal with no feedback just looks like a dropped gesture.
+    refused: Option<(u16, u16)>,
+    /// The layout being edited while a tile is held. Committed on a legal
+    /// drop, discarded otherwise.
+    working: Vec<crate::tile_layout::Instance>,
     /// Everything the About page displays. Built once and kept, because
     /// `widget::about` borrows from it for the lifetime of the view.
     about: cosmic::widget::about::About,
@@ -293,18 +280,21 @@ pub enum Message {
     /// Preview tiles need a press handler to render as buttons; nothing
     /// happens on press, because there is no module behind them here.
     Noop,
-    /// Pointer down on a preview tile. Not yet a decision — see
-    /// [`Settings::pressed`].
-    PressTile(TileKey),
-    /// The pointer entered a preview tile while a press is held. Turns the
-    /// press into a drag and moves the held tile to this one's slot, so the
-    /// grid re-packs around it — that live shuffle is the placement cue.
-    HoverTile(TileKey),
-    /// Pointer up. A drag commits the new order; a plain press selects or
-    /// deselects the tile that was pressed.
-    ReleaseTile,
-    /// The pointer left a preview tile.
-    ExitTile,
+    /// Pointer down on a placed tile: start dragging that layout index.
+    PickInstance(usize),
+    /// The pointer is over this 0-based cell while a tile is held.
+    DragToCell(u16, u16),
+    /// Pointer up. Commits the move if the cell is free, else snaps back and
+    /// flashes the cell that refused it.
+    DropInstance,
+    /// Remove this instance from the layout.
+    RemoveInstance(usize),
+    /// Add a control at the first free cell.
+    AddControl(TileKey, TileShape),
+    /// Flip one of the non-tile controls on the Styling tab.
+    ToggleExtra(&'static str, bool),
+    /// The pointer entered (`Some`) or left (`None`) a placed tile.
+    HoverInstance(Option<usize>),
     /// Another `--settings` invocation asked this window to come forward.
     Present,
     ToggleCustom(usize, bool),
@@ -371,6 +361,18 @@ impl Settings {
     }
 
     /// Persist, recording any failure for the view to show.
+    /// Write the edited layout back, validated, and save.
+    ///
+    /// `validate` here is belt-and-braces: every edit path already asks
+    /// `free_at` first. It costs nothing and means no code path can put an
+    /// overlap in the file.
+    fn commit(&mut self) {
+        let edited = std::mem::take(&mut self.working);
+        self.config.appearance.layout = crate::tile_layout::validate(&edited);
+        self.target = None;
+        self.save();
+    }
+
     fn save(&mut self) {
         self.error = self.config.save().err();
         if let Some(err) = &self.error {
@@ -401,111 +403,110 @@ impl Settings {
     fn preview_section(&self) -> Element<'_, Message> {
         let spacing = self.spacing();
         let theme_spacing = Spacing::from_theme(self.core.system_theme());
-        let mut section = column::with_capacity(3)
+        let mut section = column::with_capacity(5)
             .spacing(spacing)
             .push(text::title4(fl!("settings-controls")))
             .push(text::caption(fl!("settings-preview-detail")));
 
-        // Two grids. The top one holds only what the popup draws, in the
-        // order it draws it — so it *is* the popup's layout, not a superset of
-        // it with some tiles dimmed. Everything switched off sits in its own
-        // grid underneath, where tapping brings it back up.
-        let mut shown: Vec<(Element<'_, Message>, TileShape)> = Vec::with_capacity(20);
-        let mut hidden: Vec<(Element<'_, Message>, TileShape)> = Vec::with_capacity(20);
+        let layout = self.layout();
 
-        for &key in self.preview_order().iter() {
-            let module_key = preview_module_key(key);
-            let shape = key.shape_with(&self.config.appearance.shapes);
-            let enabled = self.module_enabled(module_key);
-            let tile = self.preview_tile(key, enabled, theme_spacing);
-            let dragging = self.dragging && self.pressed == Some(key);
-            let tile = preview_frame(tile, enabled, dragging);
-            // The handle appears under the pointer, which is what tells you
-            // the tiles can be moved at all. Only on tiles that are in the
-            // grid: the hidden ones are not part of the layout, so there is
-            // nothing to drag them among.
-            let tile = with_drag_handle(
-                tile,
-                enabled && (self.hovered == Some(key) || dragging),
-                spacing,
-            );
-            // One pointer button, two gestures: a press that never leaves the
-            // tile is a tap and toggles it; a press that wanders into another
-            // shown tile is a drag and reorders. `mouse_area` rather than the
-            // tile's own button so both live in one place.
-            let mut area = cosmic::widget::mouse_area(tile)
-                .on_press(Message::PressTile(key))
-                .on_release(Message::ReleaseTile)
-                .on_exit(Message::ExitTile);
-            if enabled {
-                area = area
-                    .interaction(if dragging {
-                        cosmic::iced::mouse::Interaction::Grabbing
-                    } else {
-                        cosmic::iced::mouse::Interaction::Grab
-                    })
-                    .on_enter(Message::HoverTile(key));
-            } else {
-                area = area.interaction(cosmic::iced::mouse::Interaction::Pointer);
-            }
-            let entry = (area.into(), shape);
-            if enabled {
-                shown.push(entry);
-            } else {
-                hidden.push(entry);
-            }
+        // One element per instance, at the instance's own cell. A control
+        // placed twice is drawn twice — there is no "the Battery tile" here
+        // any more, only the instances of it.
+        let mut tiles: Vec<(Element<'_, Message>, crate::tile_layout::Slot)> =
+            Vec::with_capacity(layout.len());
+        for (index, instance) in layout.iter().copied().enumerate() {
+            let held = self.picked == Some(index);
+            let tile = self.preview_tile(instance.control, true, theme_spacing);
+            let tile = preview_frame(tile, true, held);
+            // The remove affordance is on the tile, because the tile is what
+            // you are removing. The palette only ever adds.
+            let tile = with_remove_button(tile, self.hovered == Some(index), index, spacing);
+            let area = cosmic::widget::mouse_area(tile)
+                .on_press(Message::PickInstance(index))
+                .on_release(Message::DropInstance)
+                .on_enter(Message::HoverInstance(Some(index)))
+                .on_exit(Message::HoverInstance(None))
+                .interaction(if held {
+                    cosmic::iced::mouse::Interaction::Grabbing
+                } else {
+                    cosmic::iced::mouse::Interaction::Grab
+                });
+            // Entering an occupied tile while dragging aims at *its* cell,
+            // which is never free — so the drop is refused there rather than
+            // silently landing somewhere else.
+            let area = area.on_move(move |_| Message::DragToCell(instance.col, instance.row));
+            tiles.push((area.into(), instance.slot()));
         }
 
-        section = section.push(tile_grid(slotted(shown), Ghosts::Visible, theme_spacing));
+        // Gaps are the drop targets, so Settings builds them itself.
+        let refused = self.refused;
+        let dragging = self.picked.is_some();
+        let ghosts = crate::ui::Ghosts::Custom(Box::new(move |col, row| {
+            let slot = crate::ui::ghost_slot(refused == Some((col, row)), theme_spacing);
+            cosmic::widget::mouse_area(slot)
+                .on_move(move |_| Message::DragToCell(col, row))
+                .on_release(Message::DropInstance)
+                .interaction(if dragging {
+                    cosmic::iced::mouse::Interaction::Grabbing
+                } else {
+                    cosmic::iced::mouse::Interaction::default()
+                })
+                .into()
+        }));
 
-        if !hidden.is_empty() {
+        section = section.push(tile_grid(tiles, ghosts, theme_spacing));
+
+        // Until the palette lands, controls absent from the layout keep their
+        // own grid underneath: tapping one adds it at the first free cell.
+        // The palette replaces this wholesale in the next commit.
+        let absent: Vec<TileKey> = self
+            .placeable()
+            .into_iter()
+            .filter(|&k| !layout.iter().any(|i| i.control == k))
+            .collect();
+        if !absent.is_empty() {
+            let mut available: Vec<(Element<'_, Message>, TileShape)> =
+                Vec::with_capacity(absent.len());
+            for key in absent {
+                let shape = key.default_shape();
+                let tile =
+                    preview_frame(self.preview_tile(key, false, theme_spacing), false, false);
+                let area = cosmic::widget::mouse_area(tile)
+                    .on_press(Message::AddControl(key, shape))
+                    .interaction(cosmic::iced::mouse::Interaction::Pointer);
+                available.push((area.into(), shape));
+            }
             section = section
                 .push(text::title4(fl!("settings-hidden")))
                 .push(text::caption(fl!("settings-hidden-detail")))
-                .push(tile_grid(slotted(hidden), Ghosts::Visible, theme_spacing));
+                .push(tile_grid(
+                    slotted(available),
+                    crate::ui::Ghosts::Empty,
+                    theme_spacing,
+                ));
         }
         section.into()
     }
 
-    /// The tiles to preview, in the order the popup will draw them.
+    /// The layout being drawn: the one mid-edit if a tile is held, else the
+    /// saved one.
     ///
-    /// Mirrors the popup's rule: with the Connectivity group on, Wi-Fi,
-    /// Bluetooth and VPN live inside it and do not appear on their own; with
-    /// it off, the three come first as standalone tiles.
-    /// Every tile key, in the user's order — including ones this page does
-    /// not draw.
-    ///
-    /// This is what gets persisted. Saving only the *drawn* subset silently
-    /// dropped every other key from the file, and `resolve_order` then
-    /// re-appended them at the end — so one drag could shunt Connectivity to
-    /// the bottom of a grid the user never touched. Reordering has to happen
-    /// in the complete list and be written back complete.
-    fn full_order(&self) -> Vec<TileKey> {
-        // Mid-move, the order being edited is the one to use.
-        if self.pressed.is_some() && !self.working_order.is_empty() {
-            return self.working_order.clone();
+    /// A cancelled or refused move therefore leaves the file exactly as it
+    /// was, rather than half-applied.
+    fn layout(&self) -> Vec<crate::tile_layout::Instance> {
+        if self.picked.is_some() && !self.working.is_empty() {
+            return self.working.clone();
         }
-        crate::tile_layout::resolve_order(&self.config.appearance.order, |_| true)
+        self.config.appearance.layout.clone()
     }
 
-    /// The subset of [`Self::full_order`] this page draws.
-    ///
-    /// Every tile is previewed whether or not its switch is on — the switch is
-    /// what you came here to find, and a tile that vanishes the moment you
-    /// switch it off leaves nowhere to switch it back on. The group and the
-    /// standalone tiles are independent, so all four are shown.
-    fn preview_order(&self) -> Vec<TileKey> {
-        self.full_order()
-            .into_iter()
-            .filter(|k| {
-                // Game Mode and the charge limit live inside the Battery page,
-                // and Media is a full-width row under the grid. None is a grid
-                // tile, so none belongs in a preview of the grid.
-                !matches!(
-                    k,
-                    TileKey::GameMode | TileKey::Media | TileKey::ChargeThreshold
-                )
-            })
+    /// Controls that can go on the grid, in default order.
+    fn placeable(&self) -> Vec<TileKey> {
+        crate::tile_layout::DEFAULT_ORDER
+            .iter()
+            .copied()
+            .filter(|&k| crate::tile_layout::is_placeable(k))
             .collect()
     }
 
@@ -640,6 +641,38 @@ impl Settings {
                 ),
         );
 
+        section.into()
+    }
+
+    /// The controls that are not grid tiles, as plain switches.
+    ///
+    /// Derived selection replaced the `[modules]` switch list for everything
+    /// that can be placed — you show a control by putting it on the grid. The
+    /// three that have no tile still need somewhere to live, so they keep a
+    /// switch, here rather than beside a grid they are not part of.
+    fn extras_section(&self) -> Element<'_, Message> {
+        let spacing = self.spacing();
+        let theme_spacing = Spacing::from_theme(self.core.system_theme());
+        let mut section = column::with_capacity(5)
+            .spacing(spacing)
+            .push(text::title4(fl!("settings-extras")))
+            .push(text::caption(fl!("settings-extras-detail")));
+
+        for (key, ftl, icon) in [
+            ("media", "media", "multimedia-player-symbolic"),
+            ("gamemode", "game-mode", "applications-games-symbolic"),
+            ("charge_threshold", "charge-limit", "battery-symbolic"),
+        ] {
+            let on = self.module_enabled(key);
+            section = section.push(crate::ui::toggle_row(
+                icon,
+                crate::i18n::lookup(ftl, None),
+                None,
+                on,
+                Some(Message::ToggleExtra(key, !on)),
+                theme_spacing,
+            ));
+        }
         section.into()
     }
 
@@ -815,10 +848,11 @@ impl Application for Settings {
             error: None,
             tabs,
             about,
-            pressed: None,
-            dragging: false,
+            picked: None,
             hovered: None,
-            working_order: Vec::new(),
+            target: None,
+            refused: None,
+            working: Vec::new(),
         };
 
         // Set both titles right here, synchronously — the InitTitle Task path
@@ -842,53 +876,70 @@ impl Application for Settings {
         match message {
             Message::Tab(entity) => self.tabs.activate(entity),
             Message::Noop => {}
-            Message::PressTile(key) => {
-                // The *full* order, not the drawn subset — see `full_order`.
-                self.working_order = self.full_order();
-                self.pressed = Some(key);
-                self.dragging = false;
+            Message::PickInstance(index) => {
+                self.working = self.config.appearance.layout.clone();
+                self.picked = Some(index);
+                self.target = None;
+                self.refused = None;
             }
-            Message::ReleaseTile => {
-                let Some(key) = self.pressed.take() else {
-                    // A release with no press behind it: the press began
+            Message::HoverInstance(over) => self.hovered = over,
+            Message::DragToCell(col, row) => {
+                if self.picked.is_some() {
+                    self.target = Some((col, row));
+                    // Moving again clears a stale refusal, so the flash
+                    // belongs to the cell the pointer is on now.
+                    self.refused = None;
+                }
+            }
+            Message::DropInstance => {
+                let Some(index) = self.picked.take() else {
+                    // A release with no pick behind it: the press began
                     // somewhere else, or was already resolved.
                     return Task::none();
                 };
-                if self.dragging {
-                    self.config.appearance.order = std::mem::take(&mut self.working_order);
-                } else {
-                    // A plain press selects or deselects.
-                    let module = preview_module_key(key);
-                    let enabled = self.module_enabled(module);
-                    self.set_module(module, !enabled);
-                    self.working_order.clear();
+                let (Some((col, row)), Some(held)) =
+                    (self.target.take(), self.working.get(index).copied())
+                else {
+                    self.working.clear();
+                    return Task::none();
+                };
+                if (col, row) == (held.col, held.row) {
+                    // Picked up and put back down. Not a move, not a refusal.
+                    self.working.clear();
+                    return Task::none();
                 }
-                self.dragging = false;
+                // The held tile's own cells are free for it to move within,
+                // so it is taken out of the layout before the question is
+                // asked — otherwise a one-cell nudge would collide with itself.
+                let mut rest = self.working.clone();
+                rest.remove(index);
+                if crate::tile_layout::free_at(&rest, held.shape, col, row) {
+                    self.working[index].col = col;
+                    self.working[index].row = row;
+                    self.commit();
+                } else {
+                    self.refused = Some((col, row));
+                    self.working.clear();
+                }
+            }
+            Message::RemoveInstance(index) => {
+                if index < self.config.appearance.layout.len() {
+                    self.working = self.config.appearance.layout.clone();
+                    self.working.remove(index);
+                    self.hovered = None;
+                    self.commit();
+                }
+            }
+            Message::ToggleExtra(key, on) => {
+                self.set_module(key, on);
                 self.save();
             }
-            Message::ExitTile => self.hovered = None,
-            Message::HoverTile(over) => {
-                self.hovered = Some(over);
-                // Only a shown tile can be dragged, and only onto another shown
-                // tile — the hidden grid is not part of the layout being
-                // edited. `on_enter` is only wired on shown tiles, but the
-                // pressed one could have been hidden by a tap a moment ago.
-                let shown = |k: TileKey| self.module_enabled(preview_module_key(k));
-                if let Some(picked) = self.pressed {
-                    if picked != over && shown(picked) && shown(over) {
-                        // Entering a different tile is what makes this a drag
-                        // rather than a tap.
-                        self.dragging = true;
-                        let order = &mut self.working_order;
-                        if let (Some(from), Some(to)) = (
-                            order.iter().position(|&k| k == picked),
-                            order.iter().position(|&k| k == over),
-                        ) {
-                            let moved = order.remove(from);
-                            order.insert(to, moved);
-                        }
-                    }
-                }
+            Message::AddControl(key, shape) => {
+                self.working = self.config.appearance.layout.clone();
+                let (col, row) = crate::tile_layout::first_free(&self.working, shape);
+                self.working
+                    .push(crate::tile_layout::Instance::new(key, shape, col, row));
+                self.commit();
             }
             Message::Present => {
                 // Raise and focus, rather than opening a second window. The
@@ -969,11 +1020,13 @@ impl Application for Settings {
         let spacing = self.spacing();
 
         let page: Element<'_, Message> = match self.tabs.active_data::<Tab>() {
-            Some(Tab::Styling) => column::with_capacity(3)
+            Some(Tab::Styling) => column::with_capacity(5)
                 .spacing(spacing * 2)
                 .push(self.style_section())
                 .push(divider::horizontal::default())
                 .push(self.icon_section())
+                .push(divider::horizontal::default())
+                .push(self.extras_section())
                 .into(),
             Some(Tab::About) => {
                 cosmic::widget::about::about(&self.about, |url| Message::OpenUrl(url.to_string()))

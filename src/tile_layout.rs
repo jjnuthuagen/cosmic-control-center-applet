@@ -628,6 +628,20 @@ pub fn validate(layout: &[Instance]) -> Vec<Instance> {
     kept
 }
 
+/// Whether this control can be placed on the grid at all.
+///
+/// Game Mode and the charge limit live inside the Battery page, and Media is
+/// a full-width row under the grid. None of the three has a tile, so none can
+/// be an instance — they keep a plain switch instead. Both the migration and
+/// the Settings palette ask here, so the two can never disagree about what is
+/// placeable.
+pub fn is_placeable(key: TileKey) -> bool {
+    !matches!(
+        key,
+        TileKey::GameMode | TileKey::Media | TileKey::ChargeThreshold
+    )
+}
+
 /// Build a layout from the pre-0.2 `order` + `shapes` model.
 ///
 /// Runs the old packer once, so a migrated config opens exactly as 0.1.6
@@ -639,7 +653,10 @@ pub fn migrate_from_packed(
     shapes: &std::collections::HashMap<TileKey, TileShape>,
     is_enabled: impl Fn(TileKey) -> bool,
 ) -> Vec<Instance> {
-    let keys = resolve_order(order, is_enabled);
+    let keys: Vec<TileKey> = resolve_order(order, is_enabled)
+        .into_iter()
+        .filter(|&k| is_placeable(k))
+        .collect();
     let shapes: Vec<TileShape> = keys.iter().map(|k| k.shape_with(shapes)).collect();
     let packed = pack(&shapes, GRID_COLUMNS);
     keys.iter()
@@ -802,7 +819,10 @@ mod instance_tests {
         let off = [TileKey::Wifi, TileKey::Bluetooth, TileKey::Vpn];
         let layout = migrate_from_packed(&order, &shapes, |k| !off.contains(&k));
 
-        let keys = resolve_order(&order, |k| !off.contains(&k));
+        let keys: Vec<TileKey> = resolve_order(&order, |k| !off.contains(&k))
+            .into_iter()
+            .filter(|&k| is_placeable(k))
+            .collect();
         let packed = pack(
             &keys
                 .iter()
@@ -864,6 +884,60 @@ mod instance_tests {
         let packed = place(&[]);
         assert_eq!(packed.rows, 0);
         assert!(packed.tiles.is_empty() && packed.ghosts.is_empty());
+    }
+
+    #[test]
+    fn a_tile_can_be_nudged_into_cells_its_own_footprint_covers() {
+        // The move rule Settings implements: the held tile is lifted out
+        // before the question is asked, or a one-cell nudge collides with
+        // where it already is and every short move is refused.
+        let layout = [at(Battery, Wide, 0, 0), at(Dns, Small, 0, 1)];
+        let held = 1;
+        let mut rest = layout.to_vec();
+        let moved = rest.remove(held);
+        // One sub-column right: overlaps its own old cells, but not another's.
+        assert!(free_at(&rest, moved.shape, 1, 1));
+        // Still refused where the Wide actually is.
+        assert!(!free_at(&rest, moved.shape, 0, 0));
+        // And with the tile left in, even the legal nudge would be refused —
+        // the bug this lift-out avoids.
+        assert!(!free_at(&layout, moved.shape, 1, 1));
+    }
+
+    #[test]
+    fn a_removed_instance_frees_exactly_its_own_cells() {
+        let mut layout = vec![at(Battery, Small, 0, 0), at(Dns, Small, 2, 0)];
+        assert!(!free_at(&layout, Small, 2, 0));
+        layout.remove(1);
+        assert!(free_at(&layout, Small, 2, 0));
+        // The other tile is untouched: removal is not a re-pack.
+        assert_eq!(layout, vec![at(Battery, Small, 0, 0)]);
+    }
+
+    #[test]
+    fn adding_a_control_lands_it_in_the_first_gap_not_at_the_end() {
+        // The palette's add rule. A gap the user left is where the next tile
+        // goes, which is also why add can never need a collision check.
+        let layout = vec![at(Battery, Half, 0, 0), at(Dns, Small, 2, 0)];
+        let (col, row) = first_free(&layout, Half);
+        assert_eq!((col, row), (1, 0));
+        assert!(free_at(&layout, Half, col, row));
+    }
+
+    #[test]
+    fn migration_never_places_a_control_that_has_no_tile() {
+        // Media is a row under the grid, Game Mode and the charge limit live
+        // in the Battery page. A migration that placed them would draw three
+        // tiles the popup has never had.
+        let layout = migrate_from_packed(&[], &std::collections::HashMap::new(), |_| true);
+        for key in [TileKey::Media, TileKey::GameMode, TileKey::ChargeThreshold] {
+            assert!(!is_placeable(key));
+            assert!(
+                !layout.iter().any(|i| i.control == key),
+                "{key:?} was placed on the grid"
+            );
+        }
+        assert!(layout.iter().all(|i| is_placeable(i.control)));
     }
 
     #[test]
@@ -1013,7 +1087,9 @@ mod pack_tests {
 pub enum Entry {
     /// A tile from the input list, by index.
     Tile(usize),
-    Ghost,
+    /// An empty cell, by its 0-based (col, row). Settings turns these into
+    /// drop targets, so the position has to survive the cut.
+    Ghost(u16, u16),
 }
 
 /// One horizontal slice of the grid, ready to be drawn with rows and
@@ -1067,7 +1143,10 @@ pub fn bands(pack: &Pack) -> Vec<Band> {
         all.push(*p);
     }
     for p in &pack.ghosts {
-        at.insert((p.row, p.column), (Entry::Ghost, *p));
+        at.insert(
+            (p.row, p.column),
+            (Entry::Ghost(p.column - 1, p.row - 1), *p),
+        );
         all.push(*p);
     }
 
@@ -1174,7 +1253,7 @@ mod band_tests {
         let b = bands(&p);
         assert_eq!(b[0].strips.len(), 4);
         assert_eq!(b[0].strips[0].rows, vec![vec![(T(0), 1)]]);
-        assert_eq!(b[0].strips[1].rows, vec![vec![(Ghost, 1)]]);
+        assert_eq!(b[0].strips[1].rows, vec![vec![(Ghost(1, 0), 1)]]);
     }
 
     #[test]
@@ -1219,9 +1298,11 @@ mod band_tests {
         assert_eq!(b.len(), 1);
         // Left strip: the Tall. Right side: two sub-column strips of ghosts.
         assert_eq!(b[0].strips[0].rows, vec![vec![(T(0), 2)], vec![]]);
-        assert!(b[0].strips[1..]
-            .iter()
-            .all(|s| s.width == 1 && s.rows == vec![vec![(Ghost, 1)], vec![(Ghost, 1)]]));
+        assert!(b[0].strips[1..].iter().all(|s| s.width == 1
+            && s.rows
+                .iter()
+                .flatten()
+                .all(|(e, w)| matches!(e, Ghost(..)) && *w == 1)));
     }
 
     #[test]

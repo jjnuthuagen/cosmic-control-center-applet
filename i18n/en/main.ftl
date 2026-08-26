@@ -127,9 +127,9 @@ tab-about = About
 settings-window-title = Control Center Settings
 
 settings-controls = Controls
-settings-preview-detail = This is the grid the panel button opens, in this order. Tap a tile to hide it. Drag a tile by its handle to move it, and the others make room. The words on the tiles are placeholders; the popup shows live state.
-settings-hidden = Not shown
-settings-hidden-detail = Tap a tile to put it back in the grid.
+settings-preview-detail = This is the grid the panel button opens. Drag a tile to move it — it lands only where there is room, and nothing else shifts. Hover a tile for the − that removes it. The words on the tiles are placeholders; the popup shows live state.
+settings-hidden = Not on the grid
+settings-hidden-detail = Tap one to add it at the first free space.
 settings-controls-detail = Choose what appears in the popup. Some controls only show up if your machine has the hardware for them.
 
 settings-custom = Your tiles
@@ -174,3 +174,6 @@ mode-light = Light
 tiling = Window Tiling
 tiling-on = Tiled
 tiling-off = Floating
+
+settings-extras = Other controls
+settings-extras-detail = These are not grid tiles: Media is the row under the grid, and Game Mode and the charge limit live inside the Battery page.
