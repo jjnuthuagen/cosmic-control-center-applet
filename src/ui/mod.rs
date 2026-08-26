@@ -229,7 +229,7 @@ impl<'a, Msg: Clone + 'static> Tile<'a, Msg> {
             .class(if filled {
                 button::ButtonClass::Suggested
             } else {
-                button::ButtonClass::Standard
+                tile_button_class()
             })
             .width(Length::Fill)
             .height(Length::Fixed(tile_height(spacing)));
@@ -252,28 +252,72 @@ impl<'a, Msg: Clone + 'static> Tile<'a, Msg> {
     }
 }
 
-/// The surface every non-button tile draws on: the same fill a standard
-/// button has.
+/// The colour a tile's card is painted in.
 ///
-/// `Tile` is a `button::custom` with `ButtonClass::Standard`, and libcosmic
-/// paints that with `cosmic.button.base`. The slider and Connectivity tiles
-/// are containers, not buttons, so they have to ask for that colour by name
-/// — `theme::Container::Primary` looked close in isolation but is the
-/// *layer* colour, which under frosted glass is the popup's own translucent
-/// background. Those tiles then read as holes in the popup: the whole thing
-/// looked un-frosted and the sliders looked like a different kind of tile.
+/// This is COSMIC's *component on the background layer* — what the system
+/// paints any card sitting on a background with. Two properties matter here:
+///
+/// * It is **frost-aware**: alpha follows the `frosted_*` theme flags (1.0
+///   with frost off, ~0.78 with it on), so a tile sits on the popup's glass
+///   the way every other COSMIC surface does. `cosmic.button.base`, which
+///   this replaced, is a flat 25% wash whatever the frost setting — and a
+///   popup tiled edge to edge with it read as an extra film over the blur
+///   rather than as cards on glass.
+/// * It is **not** `theme::Container::Primary`. That is the *layer* colour,
+///   which under frosted glass is the popup's own background, so tiles drawn
+///   in it read as holes punched in the popup.
+///
+/// Both tile kinds go through here — `Tile` is a button, the slider and
+/// Connectivity tiles are containers — because the moment the two ask
+/// different questions they drift, which is exactly how the sliders once
+/// ended up looking like a different kind of tile.
+fn tile_component(theme: &cosmic::Theme) -> cosmic::cosmic_theme::Component {
+    theme
+        .cosmic()
+        .background(theme.transparent)
+        .component
+        .clone()
+}
+
+/// The surface every non-button tile draws on: the same fill a tile button
+/// gets from [`tile_button_class`].
 fn tile_surface<'a>() -> theme::Container<'a> {
     theme::Container::Custom(Box::new(|theme| {
-        let cosmic = theme.cosmic();
+        let component = tile_component(theme);
         container::Style {
-            background: Some(Background::Color(cosmic.button.base.into())),
+            background: Some(Background::Color(component.base.into())),
             border: Border {
-                radius: cosmic.corner_radii.radius_s.into(),
+                radius: theme.cosmic().corner_radii.radius_s.into(),
                 ..Default::default()
             },
             ..Default::default()
         }
     }))
+}
+
+/// A tile button painted in the same frost-aware card colour as
+/// [`tile_surface`], with the hover and pressed states from that component.
+///
+/// Text and icon colours are left unset so they inherit, exactly as
+/// `ButtonClass::Standard` leaves them — see the note on [`quiet_button`] for
+/// what happens to a class that sets them instead.
+fn tile_button_class() -> button::ButtonClass {
+    fn style(theme: &cosmic::Theme, fill: cosmic::cosmic_theme::palette::Srgba) -> button::Style {
+        button::Style {
+            background: Some(Background::Color(Color::from(fill))),
+            border_radius: theme.cosmic().corner_radii.radius_s.into(),
+            text_color: None,
+            icon_color: None,
+            ..button::Style::new()
+        }
+    }
+
+    button::ButtonClass::Custom {
+        active: Box::new(|_focused, theme| style(theme, tile_component(theme).base)),
+        disabled: Box::new(|theme| style(theme, tile_component(theme).disabled)),
+        hovered: Box::new(|_focused, theme| style(theme, tile_component(theme).hover)),
+        pressed: Box::new(|_focused, theme| style(theme, tile_component(theme).pressed)),
+    }
 }
 
 /// The icon sitting on its own base shape, used by [`TileStyle::Medium`].
@@ -877,6 +921,56 @@ fn truncate(text: &str, max: usize) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_tile_is_painted_in_a_frost_aware_colour() {
+        // The bug this pins: tiles were `cosmic.button.base`, a flat 25% wash
+        // whatever the frost setting, so a popup tiled edge to edge read as an
+        // extra film over the blur instead of cards on glass. The card colour
+        // has to follow the frosted_* flags like every other COSMIC surface.
+        use cosmic::widget::button::Catalog;
+
+        let mut theme = cosmic::Theme::dark();
+
+        theme.transparent = false;
+        let solid = tile_component(&theme).base.alpha;
+        theme.transparent = true;
+        let frosted = tile_component(&theme).base.alpha;
+
+        assert!(
+            frosted < solid,
+            "a tile must go translucent under frost: {frosted} !< {solid}"
+        );
+
+        // The flat wash it replaced does not move, which is the whole point.
+        let button_base = theme.cosmic().button.base.alpha;
+        theme.transparent = false;
+        assert!((theme.cosmic().button.base.alpha - button_base).abs() < f32::EPSILON);
+
+        // And not the layer colour, which under frost *is* the popup's own
+        // background — tiles drawn in it read as holes.
+        theme.transparent = true;
+        assert_ne!(
+            tile_component(&theme).base,
+            theme.cosmic().background(true).base,
+            "a tile must not be painted in the layer colour underneath it"
+        );
+
+        // Both tile kinds ask the same question, so they cannot drift.
+        let class = tile_button_class();
+        let button_fill = match theme.active(false, false, &class).background {
+            Some(cosmic::iced::Background::Color(c)) => c,
+            other => panic!("a tile button must paint a colour, got {other:?}"),
+        };
+        assert_eq!(
+            button_fill,
+            cosmic::iced::Color::from(tile_component(&theme).base)
+        );
+
+        // Left to inherit, exactly as ButtonClass::Standard leaves them.
+        let style = theme.active(false, false, &class);
+        assert!(style.text_color.is_none() && style.icon_color.is_none());
+    }
 
     #[test]
     fn a_connectivity_row_inherits_its_colour_instead_of_being_accented() {
