@@ -779,8 +779,9 @@ pub fn connectivity_tile<'a, Msg: Clone + 'static>(
 /// stayed neutral. `Transparent` is no good either: it zeroes the text colour
 /// rather than leaving it alone, so the labels disappear.
 ///
-/// So: no fill at rest, the standard button's own hover and pressed washes,
-/// and text and icon left to inherit exactly as `Standard` leaves them.
+/// So: no fill at rest — the tile's card is already the surface — with the
+/// same hover and pressed washes a tile itself uses, and text and icon left
+/// to inherit exactly as `Standard` leaves them.
 fn quiet_button() -> button::ButtonClass {
     fn base(
         theme: &cosmic::Theme,
@@ -798,17 +799,15 @@ fn quiet_button() -> button::ButtonClass {
         }
     }
 
+    // The same washes a tile uses, from the same component — see
+    // `tile_component`. These were `cosmic.button.hover`/`.pressed`, the
+    // *button* component, so a Connectivity row lit up a different colour
+    // from the tile sitting next to it under the same pointer.
     button::ButtonClass::Custom {
         active: Box::new(|_focused, theme| base(theme, None)),
         disabled: Box::new(|theme| base(theme, None)),
-        hovered: Box::new(|_focused, theme| {
-            let hover = theme.cosmic().button.hover;
-            base(theme, Some(hover))
-        }),
-        pressed: Box::new(|_focused, theme| {
-            let pressed = theme.cosmic().button.pressed;
-            base(theme, Some(pressed))
-        }),
+        hovered: Box::new(|_focused, theme| base(theme, Some(tile_component(theme).hover))),
+        pressed: Box::new(|_focused, theme| base(theme, Some(tile_component(theme).pressed))),
     }
 }
 
@@ -1102,6 +1101,45 @@ mod tests {
         // Left to inherit, exactly as ButtonClass::Standard leaves them.
         let style = theme.active(false, false, &class);
         assert!(style.text_color.is_none() && style.icon_color.is_none());
+    }
+
+    #[test]
+    fn a_connectivity_row_lights_up_the_same_as_a_tile() {
+        // Under one pointer, a row inside the Connectivity tile and the tile
+        // beside it have to be the same colour. They were not: the rows took
+        // their washes from `cosmic.button`, tiles from the background card
+        // component, so hovering one looked nothing like hovering the other.
+        use cosmic::widget::button::Catalog;
+
+        let theme = cosmic::Theme::dark();
+        let row = quiet_button();
+        let tile = tile_button_class(TileFinish::Solid);
+
+        let fill = |style: button::Style| match style.background {
+            Some(cosmic::iced::Background::Color(c)) => Some(c),
+            _ => None,
+        };
+
+        assert_eq!(
+            fill(theme.hovered(false, false, &row)),
+            fill(theme.hovered(false, false, &tile)),
+            "hover must match the tile beside it"
+        );
+        assert_eq!(
+            fill(theme.pressed(false, false, &row)),
+            fill(theme.pressed(false, false, &tile)),
+            "pressed must match the tile beside it"
+        );
+
+        // At rest the row still paints nothing: the tile's card underneath is
+        // the surface, and a second fill on top of it would read as a box in
+        // a box.
+        assert!(fill(theme.active(false, false, &row)).is_none());
+
+        // And it still inherits its text and icon colour rather than being
+        // told an accent one.
+        let hovered = theme.hovered(false, false, &row);
+        assert!(hovered.text_color.is_none() && hovered.icon_color.is_none());
     }
 
     #[test]
