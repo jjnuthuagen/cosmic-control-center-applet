@@ -243,7 +243,18 @@ impl Config {
 
         let raw = match std::fs::read_to_string(&path) {
             Ok(raw) => raw,
-            Err(err) if err.kind() == std::io::ErrorKind::NotFound => return Self::default(),
+            // First run. The shipped launchers are offered here and nowhere
+            // else: injecting them whenever `custom` happens to be empty would
+            // put them back every time someone deleted the last one.
+            Err(err) if err.kind() == std::io::ErrorKind::NotFound => {
+                let fresh = Self {
+                    custom: crate::modules::custom::installed(
+                        crate::modules::custom::default_launchers(),
+                    ),
+                    ..Self::default()
+                };
+                return fresh.migrated();
+            }
             Err(err) => {
                 tracing::warn!("could not read {}: {err}", path.display());
                 return Self::default();

@@ -103,6 +103,110 @@ impl Tile {
     }
 }
 
+/// The launchers a fresh install starts with.
+///
+/// Icon-only, so they read as a strip of buttons under the controls rather
+/// than competing with them, and **monochrome** throughout: an app's own
+/// colour icon beside a symbolic one makes a row of eight look like a
+/// collection of stickers. Every name here is a standard freedesktop one, so
+/// it resolves in whatever icon theme the user is on.
+///
+/// These are only ever *offered* — [`Config::load`] writes the subset whose
+/// program actually exists, so a machine without COSMIC Tweaks does not get a
+/// tile that does nothing. After that they are ordinary custom tiles: edit,
+/// reshape or delete them like any other.
+///
+/// [`Config::load`]: crate::config::Config::load
+pub fn default_launchers() -> Vec<Tile> {
+    use crate::tile_layout::TileShape;
+
+    let tile = |name: &str, icon: &str, command: &[&str], detail: Option<&str>| Tile {
+        name: name.to_string(),
+        icon: icon.to_string(),
+        command: command.iter().map(|s| s.to_string()).collect(),
+        detail: detail.map(str::to_string),
+        shape: TileShape::Half,
+        enabled: true,
+    };
+
+    let mut tiles = vec![
+        tile(
+            "Settings",
+            "preferences-system-symbolic",
+            &["cosmic-settings"],
+            None,
+        ),
+        tile(
+            "Tweaks",
+            "preferences-other-symbolic",
+            &["flatpak", "run", "dev.edfloreshz.CosmicTweaks"],
+            None,
+        ),
+        tile(
+            "Terminal",
+            "utilities-terminal-symbolic",
+            &["cosmic-term"],
+            None,
+        ),
+        tile(
+            "System Monitor",
+            "utilities-system-monitor-symbolic",
+            &["cosmic-monitor"],
+            None,
+        ),
+        // No symbolic Claude glyph exists in any icon theme, and drawing one
+        // would be someone else's trademark. A speech bubble says "assistant"
+        // and stays monochrome with the rest.
+        tile(
+            "Claude",
+            "chat-message-new-symbolic",
+            &["claude-desktop"],
+            None,
+        ),
+        // The two that end the machine. They run on a single press, like
+        // every other tile — see the note in the example config.
+        tile(
+            "Restart",
+            "system-reboot-symbolic",
+            &["systemctl", "reboot"],
+            Some("Reboots now"),
+        ),
+        tile(
+            "Power off",
+            "system-shutdown-symbolic",
+            &["systemctl", "poweroff"],
+            Some("Shuts down now"),
+        ),
+    ];
+
+    // Logging out means naming the user to log out, and the command is an
+    // argv array with no shell to expand `$USER` for us. Without a name there
+    // is nothing sensible to run, so the tile is simply not offered.
+    if let Some(user) = std::env::var_os("USER").and_then(|u| u.into_string().ok()) {
+        tiles.push(tile(
+            "Log out",
+            "system-log-out-symbolic",
+            &["loginctl", "terminate-user", &user],
+            Some("Ends the session"),
+        ));
+    }
+
+    tiles
+}
+
+/// The subset of `tiles` whose program is actually on this machine.
+///
+/// Used for the shipped defaults only. A user's own tile is never dropped for
+/// this: they may be pointing at something that comes and goes, and silently
+/// deleting it from their config would be worse than a tile that reports a
+/// failure when pressed.
+pub fn installed(tiles: Vec<Tile>) -> Vec<Tile> {
+    tiles
+        .into_iter()
+        .filter(|tile| tile.command.first().is_some_and(|p| which(p).is_some()))
+        .collect()
+}
+
 /// The tiles that should be drawn: switched on, and able to run.
 ///
 /// Filtering at load rather than at draw means a broken entry is reported once
@@ -180,6 +284,57 @@ mod tests {
             shape: default_shape(),
             enabled: true,
         }
+    }
+
+    #[test]
+    fn the_shipped_launchers_are_icon_only_and_monochrome() {
+        let launchers = default_launchers();
+        assert!(!launchers.is_empty());
+        for tile in &launchers {
+            assert_eq!(
+                tile.shape,
+                crate::tile_layout::TileShape::Half,
+                "{} is not icon-only",
+                tile.name
+            );
+            // An app's own colour icon beside a symbolic one makes the row
+            // look like a collection of stickers.
+            assert!(
+                tile.icon.ends_with("-symbolic"),
+                "{} uses {}, which is not a monochrome icon",
+                tile.name,
+                tile.icon
+            );
+            assert!(tile.is_runnable(), "{} has no command", tile.name);
+        }
+    }
+
+    #[test]
+    fn a_launcher_is_only_offered_when_its_program_exists() {
+        // The defaults are offered to every machine, so one whose program is
+        // absent must not become a tile that quietly does nothing.
+        let present = tile("Present", vec!["sh"]);
+        let absent = tile("Absent", vec!["definitely-not-a-real-program-xyz"]);
+        let kept = installed(vec![present.clone(), absent]);
+        assert_eq!(kept, vec![present]);
+    }
+
+    #[test]
+    fn logging_out_names_the_user_because_there_is_no_shell_to_expand_it() {
+        let Some(logout) = default_launchers()
+            .into_iter()
+            .find(|t| t.name == "Log out")
+        else {
+            // No USER in the environment: the tile is not offered at all,
+            // which is the other half of the rule.
+            assert!(std::env::var_os("USER").is_none());
+            return;
+        };
+        assert_eq!(logout.command[0], "loginctl");
+        let user = std::env::var("USER").unwrap();
+        assert_eq!(logout.command.last().unwrap(), &user);
+        // A literal, not something a shell would have to expand.
+        assert!(!logout.command.iter().any(|a| a.contains('$')));
     }
 
     #[test]

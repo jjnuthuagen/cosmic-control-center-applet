@@ -125,6 +125,15 @@ the hardware works and you still don't want the tile.
 
 ## Your own tiles
 
+A fresh install starts with a strip of icon-only launchers — Settings, Tweaks,
+Terminal, System Monitor, Claude, Log out, Restart and Power off — and offers
+only the ones whose program is actually installed, so nothing lands as a tile
+that does nothing. After first run they are ordinary custom tiles: edit,
+reshape or delete them like any other, and they are never put back.
+
+Log out, Restart and Power off act on a single press with no confirmation,
+like every tile here. Delete them if that is not what you want.
+
 Any command can become a tile — a screenshot, a script, a VPN toggle. Add a
 `[[custom]]` block to `config.toml`:
 

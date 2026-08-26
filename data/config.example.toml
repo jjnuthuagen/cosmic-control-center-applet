@@ -128,6 +128,16 @@ custom_providers = [
 # you would otherwise open a terminal for. They appear after everything built
 # in, so adding one never moves the controls you are used to.
 #
+# A fresh install starts with a strip of icon-only launchers — Settings,
+# Tweaks, Terminal, System Monitor, Claude, Log out, Restart, Power off — and
+# only those whose program is actually installed. They are ordinary custom
+# tiles from then on: edit, reshape or delete them like any other, and they
+# are never added back once you have a config file.
+#
+# Note that Log out, Restart and Power off act on a single press, with no
+# confirmation, exactly like every other tile. Delete them, or point them at
+# something that asks first, if that is not what you want.
+#
 # Copy the block below, uncomment it, and change the values. Add as many
 # [[custom]] blocks as you like.
 #
