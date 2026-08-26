@@ -338,18 +338,6 @@ impl App {
         self.placed(key) || via_group
     }
 
-    /// The shape the *first* instance of a control draws at.
-    ///
-    /// Only tiles whose body changes with their footprint (the `compact`
-    /// icon-only form) ask this, and they ask while being built once per
-    /// instance — see `root_page`, which passes each instance's own shape.
-    fn shape_of(&self, key: TileKey) -> TileShape {
-        self.instances_of(key)
-            .next()
-            .map(|i| i.shape)
-            .unwrap_or_else(|| key.default_shape())
-    }
-
     /// The Wide Connectivity tile, with one row per available module.
     fn connectivity_tile(&self, spacing: Spacing) -> Element<'_, Message> {
         let mut rows = Vec::with_capacity(3);
@@ -407,6 +395,250 @@ impl App {
         )
     }
 
+    /// The element for one placed control, at the shape that instance asks
+    /// for.
+    ///
+    /// Built per instance rather than once per control. Elements cannot be
+    /// cloned, so the previous "build each control once, then hand it to the
+    /// first instance that wants it" drew a control placed twice exactly
+    /// once — the second instance silently found nothing left and was
+    /// skipped. Asking here also means the shape reaches the builder, which
+    /// is what lets a control draw differently at Half and at Wide.
+    ///
+    /// `None` is a control this machine has no hardware for; its cells are
+    /// left as gaps rather than closed up.
+    fn control_tile(
+        &self,
+        control: TileKey,
+        shape: TileShape,
+        spacing: Spacing,
+    ) -> Option<Element<'_, Message>> {
+        match control {
+            TileKey::Connectivity if self.show_connectivity() => {
+                Some(self.connectivity_tile(spacing))
+            }
+            TileKey::Wifi if self.show_wifi() => Some(
+                Tile::new(wifi_icon(&self.wifi), fl!("wifi"), self.wifi_state_text())
+                    .active(self.wifi.enabled && !self.wifi.airplane_mode)
+                    .on_press(Message::Navigate(Page::Wifi))
+                    .style(self.config.appearance.style)
+                    .finish(self.config.appearance.finish)
+                    .compact(shape == TileShape::Half)
+                    .view(spacing),
+            ),
+            TileKey::Bluetooth if self.show_bluetooth() => Some(
+                Tile::new(
+                    icons::bluetooth(self.bluetooth.powered, self.bluetooth.connected_devices),
+                    fl!("bluetooth"),
+                    self.bluetooth_state_text(),
+                )
+                .active(self.bluetooth.powered)
+                .on_press(Message::Navigate(Page::Bluetooth))
+                .style(self.config.appearance.style)
+                .finish(self.config.appearance.finish)
+                .compact(shape == TileShape::Half)
+                .view(spacing),
+            ),
+            TileKey::Battery if self.show_battery() => {
+                let mut tile = Tile::new(
+                    icons::battery(self.battery.percent, self.battery.charging),
+                    fl!("battery"),
+                    self.battery_state_text(),
+                );
+                // Only offer the page when there is something on it.
+                if self.battery.profiles.is_shown() {
+                    tile = tile.on_press(Message::Navigate(Page::Battery));
+                }
+
+                Some(
+                    tile.style(self.config.appearance.style)
+                        .finish(self.config.appearance.finish)
+                        .compact(shape == TileShape::Half)
+                        .view(spacing),
+                )
+            }
+            TileKey::Dns if self.show_dns() => {
+                let state = self
+                    .dns
+                    .active()
+                    .map_or_else(|| fl!("dns-custom"), provider_label);
+
+                Some(
+                    Tile::new(icons::dns(), fl!("dns"), state)
+                        .on_press(Message::Navigate(Page::Dns))
+                        .style(self.config.appearance.style)
+                        .finish(self.config.appearance.finish)
+                        .compact(shape == TileShape::Half)
+                        .view(spacing),
+                )
+            }
+            TileKey::DarkMode if self.show_dark_mode() => {
+                let state = if self.system.dark {
+                    fl!("mode-dark")
+                } else {
+                    fl!("mode-light")
+                };
+
+                Some(
+                    Tile::new(icons::dark_mode(self.system.dark), fl!("dark-mode"), state)
+                        .active(self.system.dark)
+                        .on_press(Message::ToggleDark)
+                        .style(self.config.appearance.style)
+                        .finish(self.config.appearance.finish)
+                        .compact(shape == TileShape::Half)
+                        .view(spacing),
+                )
+            }
+            TileKey::Tiling if self.show_tiling() => {
+                let state = if self.tiling.tiled {
+                    fl!("tiling-on")
+                } else {
+                    fl!("tiling-off")
+                };
+
+                Some(
+                    Tile::new(icons::tiling(self.tiling.tiled), fl!("tiling"), state)
+                        .active(self.tiling.tiled)
+                        .on_press(Message::ToggleTiling)
+                        .style(self.config.appearance.style)
+                        .finish(self.config.appearance.finish)
+                        .compact(shape == TileShape::Half)
+                        .view(spacing),
+                )
+            }
+            TileKey::Vpn if self.show_vpn() => {
+                let state = self
+                    .vpn
+                    .active_name()
+                    .map_or_else(|| fl!("vpn-off"), str::to_string);
+
+                Some(
+                    Tile::new(
+                        icons::vpn(self.vpn.active_name().is_some()),
+                        fl!("vpn"),
+                        state,
+                    )
+                    .active(self.vpn.active_name().is_some())
+                    .style(self.config.appearance.style)
+                    .finish(self.config.appearance.finish)
+                    .on_press(Message::Navigate(Page::Vpn))
+                    .compact(shape == TileShape::Half)
+                    .view(spacing),
+                )
+            }
+            TileKey::KeyboardBacklight if self.show_keyboard() => Some(
+                Tile::new(
+                    icons::keyboard(self.keyboard.is_on()),
+                    fl!("keyboard-backlight"),
+                    crate::i18n::lookup(self.keyboard.level_key(), None),
+                )
+                .active(self.keyboard.is_on())
+                .style(self.config.appearance.style)
+                .finish(self.config.appearance.finish)
+                .on_press(Message::CycleKeyboard)
+                .compact(shape == TileShape::Half)
+                .view(spacing),
+            ),
+            TileKey::DoNotDisturb if self.show_do_not_disturb() => {
+                let state = if self.system.do_not_disturb {
+                    fl!("on")
+                } else {
+                    fl!("off")
+                };
+
+                Some(
+                    Tile::new(
+                        icons::do_not_disturb(self.system.do_not_disturb),
+                        fl!("do-not-disturb"),
+                        state,
+                    )
+                    .active(self.system.do_not_disturb)
+                    .style(self.config.appearance.style)
+                    .finish(self.config.appearance.finish)
+                    .on_press(Message::ToggleDoNotDisturb)
+                    .compact(shape == TileShape::Half)
+                    .view(spacing),
+                )
+            }
+            TileKey::KeepAwake if self.show_keep_awake() => {
+                // Name whoever is holding it, rather than a bare "On" that leaves
+                // the user wondering why the screen will not sleep.
+                let state = match (&self.caffeine.held_by, self.caffeine.is_on()) {
+                    (Some(who), _) => fl!("keep-awake-held", who = who.clone()),
+                    (None, true) => fl!("on"),
+                    (None, false) => fl!("off"),
+                };
+
+                Some(
+                    Tile::new(
+                        icons::keep_awake(self.caffeine.is_on()),
+                        fl!("keep-awake"),
+                        state,
+                    )
+                    .active(self.caffeine.is_on())
+                    .style(self.config.appearance.style)
+                    .finish(self.config.appearance.finish)
+                    // No press while another program holds the lock — we cannot
+                    // release someone else's inhibitor, so the button would do
+                    // nothing. Same rule as Game Mode.
+                    .on_press_maybe(
+                        self.caffeine
+                            .can_toggle()
+                            .then_some(Message::ToggleKeepAwake),
+                    )
+                    .compact(shape == TileShape::Half)
+                    .view(spacing),
+                )
+            }
+            TileKey::Volume if self.show_volume() => Some(wide_slider_tile(
+                icons::volume(self.volume.percent.unwrap_or(0.0), self.volume.muted),
+                fl!("volume"),
+                self.volume.percent.unwrap_or(0.0),
+                Message::SetVolume,
+                Some(Message::ToggleMute),
+                if self.volume.muted {
+                    SliderMode::Held
+                } else {
+                    SliderMode::Live
+                },
+                crate::ui::Look::new(self.config.appearance.finish, spacing),
+            )),
+            TileKey::Brightness if self.show_brightness() => Some(wide_slider_tile(
+                icons::brightness(
+                    self.brightness.percent.unwrap_or(0.0),
+                    self.brightness.dimmed,
+                ),
+                fl!("brightness"),
+                self.brightness.percent.unwrap_or(0.0),
+                Message::SetBrightness,
+                Some(Message::ToggleDim),
+                if self.brightness.dimmed {
+                    SliderMode::Held
+                } else {
+                    SliderMode::Live
+                },
+                crate::ui::Look::new(self.config.appearance.finish, spacing),
+            )),
+            TileKey::Microphone if self.show_microphone() => Some(wide_slider_tile(
+                icons::microphone(
+                    self.microphone.percent.unwrap_or(0.0),
+                    self.microphone.muted,
+                ),
+                fl!("microphone"),
+                self.microphone.percent.unwrap_or(0.0),
+                Message::SetMicrophone,
+                Some(Message::ToggleMicrophoneMute),
+                if self.microphone.muted {
+                    SliderMode::Held
+                } else {
+                    SliderMode::Live
+                },
+                crate::ui::Look::new(self.config.appearance.finish, spacing),
+            )),
+            _ => None,
+        }
+    }
+
     fn root_page(&self) -> Element<'_, Message> {
         let spacing = self.spacing();
         // Each entry pairs its element with the footprint the packer
@@ -420,197 +652,8 @@ impl App {
         // writing it at each push meant the popup and `default_shape` could
         // disagree — which they did, silently, leaving the sliders narrow and
         // Connectivity wide after both were reshaped.
-        let mut keyed: Vec<(TileKey, Element<'_, Message>)> = Vec::with_capacity(16);
         let mut tiles: Vec<(Element<'_, Message>, crate::tile_layout::Slot)> =
             Vec::with_capacity(16);
-
-        if self.show_connectivity() {
-            keyed.push((TileKey::Connectivity, self.connectivity_tile(spacing)));
-        }
-
-        if self.show_wifi() {
-            keyed.push((
-                TileKey::Wifi,
-                Tile::new(wifi_icon(&self.wifi), fl!("wifi"), self.wifi_state_text())
-                    .active(self.wifi.enabled && !self.wifi.airplane_mode)
-                    .on_press(Message::Navigate(Page::Wifi))
-                    .style(self.config.appearance.style)
-                    .finish(self.config.appearance.finish)
-                    .compact(self.shape_of(TileKey::Wifi) == TileShape::Half)
-                    .view(spacing),
-            ));
-        }
-        if self.show_bluetooth() {
-            keyed.push((
-                TileKey::Bluetooth,
-                Tile::new(
-                    icons::bluetooth(self.bluetooth.powered, self.bluetooth.connected_devices),
-                    fl!("bluetooth"),
-                    self.bluetooth_state_text(),
-                )
-                .active(self.bluetooth.powered)
-                .on_press(Message::Navigate(Page::Bluetooth))
-                .style(self.config.appearance.style)
-                .finish(self.config.appearance.finish)
-                .compact(self.shape_of(TileKey::Bluetooth) == TileShape::Half)
-                .view(spacing),
-            ));
-        }
-        if self.show_battery() {
-            let mut tile = Tile::new(
-                icons::battery(self.battery.percent, self.battery.charging),
-                fl!("battery"),
-                self.battery_state_text(),
-            );
-            // Only offer the page when there is something on it.
-            if self.battery.profiles.is_shown() {
-                tile = tile.on_press(Message::Navigate(Page::Battery));
-            }
-            keyed.push((
-                TileKey::Battery,
-                tile.style(self.config.appearance.style)
-                    .finish(self.config.appearance.finish)
-                    .compact(self.shape_of(TileKey::Battery) == TileShape::Half)
-                    .view(spacing),
-            ));
-        }
-        if self.show_dns() {
-            let state = self
-                .dns
-                .active()
-                .map_or_else(|| fl!("dns-custom"), provider_label);
-            keyed.push((
-                TileKey::Dns,
-                Tile::new(icons::dns(), fl!("dns"), state)
-                    .on_press(Message::Navigate(Page::Dns))
-                    .style(self.config.appearance.style)
-                    .finish(self.config.appearance.finish)
-                    .compact(self.shape_of(TileKey::Dns) == TileShape::Half)
-                    .view(spacing),
-            ));
-        }
-        if self.show_dark_mode() {
-            let state = if self.system.dark {
-                fl!("mode-dark")
-            } else {
-                fl!("mode-light")
-            };
-            keyed.push((
-                TileKey::DarkMode,
-                Tile::new(icons::dark_mode(self.system.dark), fl!("dark-mode"), state)
-                    .active(self.system.dark)
-                    .on_press(Message::ToggleDark)
-                    .style(self.config.appearance.style)
-                    .finish(self.config.appearance.finish)
-                    .compact(self.shape_of(TileKey::DarkMode) == TileShape::Half)
-                    .view(spacing),
-            ));
-        }
-        if self.show_tiling() {
-            let state = if self.tiling.tiled {
-                fl!("tiling-on")
-            } else {
-                fl!("tiling-off")
-            };
-            keyed.push((
-                TileKey::Tiling,
-                Tile::new(icons::tiling(self.tiling.tiled), fl!("tiling"), state)
-                    .active(self.tiling.tiled)
-                    .on_press(Message::ToggleTiling)
-                    .style(self.config.appearance.style)
-                    .finish(self.config.appearance.finish)
-                    .compact(self.shape_of(TileKey::Tiling) == TileShape::Half)
-                    .view(spacing),
-            ));
-        }
-
-        if self.show_vpn() {
-            let state = self
-                .vpn
-                .active_name()
-                .map_or_else(|| fl!("vpn-off"), str::to_string);
-            keyed.push((
-                TileKey::Vpn,
-                Tile::new(
-                    icons::vpn(self.vpn.active_name().is_some()),
-                    fl!("vpn"),
-                    state,
-                )
-                .active(self.vpn.active_name().is_some())
-                .style(self.config.appearance.style)
-                .finish(self.config.appearance.finish)
-                .on_press(Message::Navigate(Page::Vpn))
-                .compact(self.shape_of(TileKey::Vpn) == TileShape::Half)
-                .view(spacing),
-            ));
-        }
-        if self.show_keyboard() {
-            keyed.push((
-                TileKey::KeyboardBacklight,
-                Tile::new(
-                    icons::keyboard(self.keyboard.is_on()),
-                    fl!("keyboard-backlight"),
-                    crate::i18n::lookup(self.keyboard.level_key(), None),
-                )
-                .active(self.keyboard.is_on())
-                .style(self.config.appearance.style)
-                .finish(self.config.appearance.finish)
-                .on_press(Message::CycleKeyboard)
-                .compact(self.shape_of(TileKey::KeyboardBacklight) == TileShape::Half)
-                .view(spacing),
-            ));
-        }
-        if self.show_do_not_disturb() {
-            let state = if self.system.do_not_disturb {
-                fl!("on")
-            } else {
-                fl!("off")
-            };
-            keyed.push((
-                TileKey::DoNotDisturb,
-                Tile::new(
-                    icons::do_not_disturb(self.system.do_not_disturb),
-                    fl!("do-not-disturb"),
-                    state,
-                )
-                .active(self.system.do_not_disturb)
-                .style(self.config.appearance.style)
-                .finish(self.config.appearance.finish)
-                .on_press(Message::ToggleDoNotDisturb)
-                .compact(self.shape_of(TileKey::DoNotDisturb) == TileShape::Half)
-                .view(spacing),
-            ));
-        }
-        if self.show_keep_awake() {
-            // Name whoever is holding it, rather than a bare "On" that leaves
-            // the user wondering why the screen will not sleep.
-            let state = match (&self.caffeine.held_by, self.caffeine.is_on()) {
-                (Some(who), _) => fl!("keep-awake-held", who = who.clone()),
-                (None, true) => fl!("on"),
-                (None, false) => fl!("off"),
-            };
-            keyed.push((
-                TileKey::KeepAwake,
-                Tile::new(
-                    icons::keep_awake(self.caffeine.is_on()),
-                    fl!("keep-awake"),
-                    state,
-                )
-                .active(self.caffeine.is_on())
-                .style(self.config.appearance.style)
-                .finish(self.config.appearance.finish)
-                // No press while another program holds the lock — we cannot
-                // release someone else's inhibitor, so the button would do
-                // nothing. Same rule as Game Mode.
-                .on_press_maybe(
-                    self.caffeine
-                        .can_toggle()
-                        .then_some(Message::ToggleKeepAwake),
-                )
-                .compact(self.shape_of(TileKey::KeepAwake) == TileShape::Half)
-                .view(spacing),
-            ));
-        }
 
         // User-defined tiles go last, after everything built in, so adding one
         // never reshuffles the controls someone is used to.
@@ -636,75 +679,11 @@ impl App {
 
         // Sliders are packed into the same grid rather than laid out as
         // separate full-width rows underneath.
-        if self.show_volume() {
-            keyed.push((
-                TileKey::Volume,
-                wide_slider_tile(
-                    icons::volume(self.volume.percent.unwrap_or(0.0), self.volume.muted),
-                    fl!("volume"),
-                    self.volume.percent.unwrap_or(0.0),
-                    Message::SetVolume,
-                    Some(Message::ToggleMute),
-                    if self.volume.muted {
-                        SliderMode::Held
-                    } else {
-                        SliderMode::Live
-                    },
-                    crate::ui::Look::new(self.config.appearance.finish, spacing),
-                ),
-            ));
-        }
-        if self.show_brightness() {
-            keyed.push((
-                TileKey::Brightness,
-                wide_slider_tile(
-                    icons::brightness(
-                        self.brightness.percent.unwrap_or(0.0),
-                        self.brightness.dimmed,
-                    ),
-                    fl!("brightness"),
-                    self.brightness.percent.unwrap_or(0.0),
-                    Message::SetBrightness,
-                    Some(Message::ToggleDim),
-                    if self.brightness.dimmed {
-                        SliderMode::Held
-                    } else {
-                        SliderMode::Live
-                    },
-                    crate::ui::Look::new(self.config.appearance.finish, spacing),
-                ),
-            ));
-        }
-        if self.show_microphone() {
-            keyed.push((
-                TileKey::Microphone,
-                wide_slider_tile(
-                    icons::microphone(
-                        self.microphone.percent.unwrap_or(0.0),
-                        self.microphone.muted,
-                    ),
-                    fl!("microphone"),
-                    self.microphone.percent.unwrap_or(0.0),
-                    Message::SetMicrophone,
-                    Some(Message::ToggleMicrophoneMute),
-                    if self.microphone.muted {
-                        SliderMode::Held
-                    } else {
-                        SliderMode::Live
-                    },
-                    crate::ui::Look::new(self.config.appearance.finish, spacing),
-                ),
-            ));
-        }
-
-        // One element per *instance*: two Batteries are two tiles. A control
-        // whose element was never built is one this machine has no hardware
-        // for — its instances are skipped, leaving a gap rather than a hole
-        // the band cutter cannot express, because `place` ghosts every cell
-        // no drawn instance covers.
+        // One element per instance, built at that instance's own shape, so a
+        // control placed twice draws twice and a control placed Wide draws
+        // its Wide form.
         for instance in &self.config.appearance.layout {
-            if let Some(i) = keyed.iter().position(|(k, _)| *k == instance.control) {
-                let (_, element) = keyed.swap_remove(i);
+            if let Some(element) = self.control_tile(instance.control, instance.shape, spacing) {
                 tiles.push((element, instance.slot()));
             }
         }
@@ -1401,7 +1380,26 @@ impl Application for App {
                     .max_width(POPUP_WIDTH)
                     .min_width(POPUP_WIDTH)
                     .max_height(POPUP_MAX_HEIGHT);
-                cosmic::iced::platform_specific::shell::commands::popup::get_popup(settings)
+                let popup =
+                    cosmic::iced::platform_specific::shell::commands::popup::get_popup(settings);
+
+                // Ask for the blur ourselves. libcosmic issues `enable_blur`
+                // only for surfaces it tracks in `surface_views`, and a popup
+                // made with `get_popup` is not one of those — `Core::blur`
+                // takes the untracked branch, which for an applet is a flat
+                // `false`. So the theme said frosted_applets, the popup drew
+                // its translucent background, and nothing behind it was ever
+                // blurred: transparency without frost, which reads as a film
+                // over the wallpaper rather than glass.
+                //
+                // Gated on the same question libcosmic would have asked, so
+                // turning frosted styling off in Settings still turns it off
+                // here.
+                if self.core.frosted(self.core.system_theme().cosmic()) {
+                    Task::batch([popup, cosmic::iced::window::enable_blur(id)])
+                } else {
+                    popup
+                }
             }
             Message::PopupClosed(id) => {
                 if self.popup == Some(id) {
