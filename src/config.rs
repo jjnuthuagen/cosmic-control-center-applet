@@ -59,6 +59,9 @@ pub struct Modules {
 #[serde(default, deny_unknown_fields)]
 pub struct Appearance {
     pub style: TileStyle,
+    /// How tile surfaces are painted. See [`TileFinish`].
+    #[serde(default)]
+    pub finish: TileFinish,
     pub icon: PanelIcon,
     /// The placed tiles: what is drawn, at what size, and where.
     ///
@@ -110,6 +113,47 @@ impl TileStyle {
             TileStyle::High => "style-high-detail",
             TileStyle::Medium => "style-medium-detail",
             TileStyle::Low => "style-low-detail",
+        }
+    }
+}
+
+/// How a tile's own surface is painted.
+///
+/// Separate from [`TileStyle`], which is about the *on* state. This is about
+/// the material: how much of the popup's frosted glass comes through the tile
+/// sitting on it.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(rename_all = "lowercase")]
+pub enum TileFinish {
+    /// A filled card. Frost-aware — it thins when the desktop's frosted
+    /// styling is on — but still reads as a solid surface on the glass.
+    #[default]
+    Solid,
+    /// A frosted card: the blur behind comes through, but the tile is clearly
+    /// denser than the popup around it, so it still reads as a distinct
+    /// surface rather than a smudge.
+    Frosted,
+    /// No fill at all — a semi-transparent stroke, and one uninterrupted
+    /// sheet of frosted glass across the whole popup.
+    Outline,
+}
+
+impl TileFinish {
+    pub const ALL: [TileFinish; 3] = [TileFinish::Solid, TileFinish::Frosted, TileFinish::Outline];
+
+    pub fn l10n_key(self) -> &'static str {
+        match self {
+            TileFinish::Solid => "finish-solid",
+            TileFinish::Frosted => "finish-frosted",
+            TileFinish::Outline => "finish-outline",
+        }
+    }
+
+    pub fn description_key(self) -> &'static str {
+        match self {
+            TileFinish::Solid => "finish-solid-detail",
+            TileFinish::Frosted => "finish-frosted-detail",
+            TileFinish::Outline => "finish-outline-detail",
         }
     }
 }

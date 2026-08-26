@@ -26,32 +26,51 @@ Built in Rust with [libcosmic](https://github.com/pop-os/libcosmic) for the [COS
 
 ## The grid
 
-Tiles come in three shapes and pack into two columns:
+Tiles come in four shapes on a four-sub-column grid:
 
 | Shape | Footprint | Used by |
 |---|---|---|
-| Half | ½ × 1 | Icon only, four to a row — opt in per tile with `shapes = { battery = "half" }` |
+| Half | ½ × 1 | Icon only, four to a row — name and state on hover |
 | Small | 1 × 1 | Most controls |
 | Tall | 1 × 2 | Connectivity — Wi-Fi, Bluetooth and VPN stacked, a switch each |
 | Wide | 2 × 1 | Volume, brightness, microphone: icon, track, percentage |
 
-The packer keeps your order. A Wide tile behind a Small one leaves a ghost
-slot to the Small's right rather than swapping them — so when you move a
-tile, it lands where you put it.
+**Free placement.** A tile sits exactly where you put it. Nothing is packed
+and nothing is re-flowed: a gap you leave is a gap you keep, and the same
+control can appear more than once, at more than one size — a Half of it up
+top for the glance, a Wide of it lower down for the detail.
 
-**Choosing and rearranging:** right-click the panel button → Tiles. The grid
-at the top is exactly what the popup draws, in that order. Tap a tile to move
-it to **Not shown** underneath; tap it there to bring it back. Drag a tile by
-its handle and the others make room; drop it where you want it. The order is
-written to `config.toml` as `[appearance] order = […]`, and the selection as
-the `[modules]` flags; both can be edited by hand.
+**Arranging:** right-click the panel button → Tiles. The grid there is
+exactly what the popup draws. Drag a tile to move it; it lands only on free
+space, and if it will not fit, it snaps back and the cell it refused flashes
+— nothing you did not drag ever moves. Hover a tile for the − that takes it
+off. Controls that are not on the grid are listed underneath; tap one to add
+it at the first free space.
 
-The group and the individual tiles are independent switches, so you can have
-whichever suits: `connectivity` draws the grouped tile, and `wifi`,
-`bluetooth` and `vpn` each draw a standalone tile. Turn on both and Wi-Fi
-appears twice, which is allowed — some people want the group for switching
-and a big tile for the SSID. Out of the box the group is on and the three
-standalone tiles are off.
+**Being on the grid is what shows a control.** There is no second switch to
+keep in agreement: place a control and it is drawn and its backend starts,
+remove it and neither happens. Three controls have no tile of their own —
+Media is a row under the grid, and Game Mode and the charge limit live inside
+the Battery page — so those keep plain switches, on the Styling tab.
+
+The layout is written to `config.toml` as `[[appearance.layout]]` blocks, one
+per tile, each naming a control, a shape and a cell. A config from before
+free placement is converted on first read and looks exactly as it did.
+
+**How tiles are painted** is a separate choice, on the Styling tab, from
+`solid` (a filled card), through `frosted` (the blur comes through, but the
+tile stays denser than the popup so it still reads as a tile), to `outline`
+(no fill at all — a faint edge, and one unbroken sheet of frosted glass
+across the whole popup). The last two only look different from `solid` when
+the desktop's frosted styling is on, since that is what makes the popup
+translucent to begin with.
+
+The group and the standalone tiles are just different controls you can
+place: `connectivity` is the grouped tile, and `wifi`, `bluetooth` and `vpn`
+are each a tile of their own. Place both and Wi-Fi appears twice, which is
+allowed — some people want the group for switching and a big tile for the
+SSID. Out of the box the group is placed and the three standalone tiles are
+not.
 
 Switching off a standalone tile does not empty that row inside the group:
 the group's rows follow the hardware, and the module itself keeps running as

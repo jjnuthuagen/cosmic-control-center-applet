@@ -72,8 +72,12 @@ specific regressions listed below. They do **not** cover layout — see section 
 | `a_wide_cannot_slip_past_a_tall_reserving_a_column` | A Wide tile overlapping a Tall one that still holds its column in the next row. |
 | `placements_never_overlap_across_any_of_the_mixed_cases` | Any two tiles claiming the same cell in a mixed grid. |
 | `missing_tiles_are_appended_in_default_order` | A config written before a tile existed silently dropping that tile. |
-| `duplicates_in_the_stored_order_are_dropped_first_wins` | A hand-edited list naming a tile twice drawing it twice. |
-| `an_order_round_trips_and_an_empty_one_means_default` | A rename of a tile's config name silently emptying every config that used it. |
+| `a_0_1_6_config_migrates_to_the_cells_the_packer_drew` | A grid that looks different after upgrading, rather than exactly as it did. |
+| `migration_never_places_a_control_that_has_no_tile` | Media, Game Mode or the charge limit being placed as tiles they have never had. |
+| `validate_drops_overlaps_first_wins_and_keeps_gaps` | A hand-edited layout drawing two tiles over each other, or a kept gap being closed. |
+| `a_tile_can_be_nudged_into_cells_its_own_footprint_covers` | Every short move being refused because the held tile collides with where it already is. |
+| `a_tile_is_painted_in_a_frost_aware_colour` | Tiles ignoring the frosted_* theme flags, so a full popup reads as a film over the blur. |
+| `a_connectivity_row_inherits_its_colour_instead_of_being_accented` | The grouped tile's labels and glyphs coming out accent-coloured while every other tile stays neutral. |
 
 ## 3. Manual checklist — the UI
 
@@ -99,21 +103,27 @@ seen once. If you only have ten minutes, do this section.
 - [ ] Battery page shows time remaining above the profiles (unplug first — on mains there is no estimate).
 - [ ] The popup opens as one grid: Connectivity wide at the top with a switch per row, sliders as tall tiles with vertical tracks, no separate slider rows underneath.
 - [ ] Muting volume from its icon replaces the vertical slider with a filled bar at the old level; unmuting brings the slider back at that level.
-- [ ] Settings → Tiles shows the same grid, with no switches. Unselected tiles are dimmed behind a dashed outline.
-- [ ] Tapping a tile without moving the pointer selects or deselects it, and the popup gains or loses it.
-- [ ] Pressing and dragging across to another tile reorders instead: the dragged tile takes a solid accent outline, the rest make room, and releasing keeps it there.
-- [ ] A drag does not also toggle the tile it started on.
+- [ ] Settings → Tiles shows the same grid the popup draws, with the empty cells as faint slots.
+- [ ] Dragging a tile onto a free space moves it there and nothing else shifts.
+- [ ] Dragging a tile onto an occupied space refuses it: the tile snaps back and the cell flashes.
+- [ ] A tile can be nudged one sub-column sideways — a short move is not refused by the tile's own old cells.
+- [ ] Hovering a tile shows a red − that removes it, leaving a gap rather than re-packing the grid.
 - [ ] Connectivity is a narrow tile, one column wide and two rows tall, with Wi-Fi/Bluetooth/VPN stacked inside it — all three rows fully visible, none clipped at the bottom.
 - [ ] Connectivity rows have no switches; pressing a row opens that module's page, and the row's icon takes the same accent treatment as a standalone tile.
 - [ ] The VPN row is present even with no VPN configured, and its page says so plainly.
 - [ ] The tiled/floating icon is the same colour as the other tile icons in both light and dark mode.
-- [ ] With `shapes = { battery = "half", dns = "half" }` in config.toml, Battery and DNS draw icon-only at half width, four such tiles fit a row, and hovering shows name and state.
-- [ ] `shapes = { volume = "half" }` is ignored: the slider stays full-width.
+- [ ] A `[[appearance.layout]]` block with `shape = "half"` draws that control icon-only at half width, four such tiles fit a row, and hovering shows name and state.
+- [ ] The same control placed twice, at two shapes, draws twice — both live, both showing the same state.
+- [ ] A custom tile with `shape = "half"` draws icon-only, with its name on hover.
+- [ ] Styling -> Tile surface: "outline" leaves the popup as one unbroken sheet of frosted glass with only faint tile edges; "frosted" shows the blur through each tile while keeping it denser than the popup; "solid" fills each tile.
+- [ ] An outlined tile still lights up under the pointer, so it does not read as a label.
+- [ ] With the desktop's frosted styling off, all three finishes are legible — none leaves unreadable text on a transparent tile.
 - [ ] Under every tile style, the icons and text sit in the same place — switching High → Medium → Low moves nothing.
 - [ ] Widening the Settings window widens the grid; nothing is clipped on the right.
-- [ ] Settings → Tiles: tapping a tile moves it to "Not shown" underneath; tapping it there brings it back. Drag works only among shown tiles.
+- [ ] Settings → Tiles: a control removed from the grid appears in the list underneath; tapping it there adds it back at the first free space.
+- [ ] Media, Game Mode and the charge limit are not on the grid at all; their switches are on the Styling tab.
 - [ ] Volume and brightness are wide tiles, two columns by one row, with horizontal tracks.
-- [ ] The group and the standalone tiles are independent: turning on both `connectivity` and `wifi` shows Wi-Fi twice; turning `wifi` off leaves the group's Wi-Fi row working.
+- [ ] The group and the standalone tiles are independent: placing both Connectivity and Wi-Fi shows Wi-Fi twice; removing the Wi-Fi tile leaves the group's Wi-Fi row working.
 - [ ] Game Mode appears directly after Performance in the same list, not under a divider.
 
 ### Panel and popup

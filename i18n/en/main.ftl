@@ -177,3 +177,12 @@ tiling-off = Floating
 
 settings-extras = Other controls
 settings-extras-detail = These are not grid tiles: Media is the row under the grid, and Game Mode and the charge limit live inside the Battery page.
+
+settings-finish = Tile surface
+settings-finish-detail = How much of the desktop's frosted glass comes through a tile.
+finish-solid = Solid
+finish-solid-detail = A filled card. Thins a little when frosted styling is on, but still reads as a surface of its own.
+finish-frosted = Frosted
+finish-frosted-detail = The blur behind comes through the tile, which stays denser than the popup so it still reads as a tile.
+finish-outline = Outline
+finish-outline-detail = No fill — a faint edge only, and one unbroken sheet of frosted glass across the whole popup.

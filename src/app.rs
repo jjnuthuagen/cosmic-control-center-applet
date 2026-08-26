@@ -402,6 +402,7 @@ impl App {
             rows,
             crate::ui::tall_height(spacing),
             self.config.appearance.style,
+            self.config.appearance.finish,
             spacing,
         )
     }
@@ -434,6 +435,7 @@ impl App {
                     .active(self.wifi.enabled && !self.wifi.airplane_mode)
                     .on_press(Message::Navigate(Page::Wifi))
                     .style(self.config.appearance.style)
+                    .finish(self.config.appearance.finish)
                     .compact(self.shape_of(TileKey::Wifi) == TileShape::Half)
                     .view(spacing),
             ));
@@ -449,6 +451,7 @@ impl App {
                 .active(self.bluetooth.powered)
                 .on_press(Message::Navigate(Page::Bluetooth))
                 .style(self.config.appearance.style)
+                .finish(self.config.appearance.finish)
                 .compact(self.shape_of(TileKey::Bluetooth) == TileShape::Half)
                 .view(spacing),
             ));
@@ -466,6 +469,7 @@ impl App {
             keyed.push((
                 TileKey::Battery,
                 tile.style(self.config.appearance.style)
+                    .finish(self.config.appearance.finish)
                     .compact(self.shape_of(TileKey::Battery) == TileShape::Half)
                     .view(spacing),
             ));
@@ -480,6 +484,7 @@ impl App {
                 Tile::new(icons::dns(), fl!("dns"), state)
                     .on_press(Message::Navigate(Page::Dns))
                     .style(self.config.appearance.style)
+                    .finish(self.config.appearance.finish)
                     .compact(self.shape_of(TileKey::Dns) == TileShape::Half)
                     .view(spacing),
             ));
@@ -496,6 +501,7 @@ impl App {
                     .active(self.system.dark)
                     .on_press(Message::ToggleDark)
                     .style(self.config.appearance.style)
+                    .finish(self.config.appearance.finish)
                     .compact(self.shape_of(TileKey::DarkMode) == TileShape::Half)
                     .view(spacing),
             ));
@@ -512,6 +518,7 @@ impl App {
                     .active(self.tiling.tiled)
                     .on_press(Message::ToggleTiling)
                     .style(self.config.appearance.style)
+                    .finish(self.config.appearance.finish)
                     .compact(self.shape_of(TileKey::Tiling) == TileShape::Half)
                     .view(spacing),
             ));
@@ -531,6 +538,7 @@ impl App {
                 )
                 .active(self.vpn.active_name().is_some())
                 .style(self.config.appearance.style)
+                .finish(self.config.appearance.finish)
                 .on_press(Message::Navigate(Page::Vpn))
                 .compact(self.shape_of(TileKey::Vpn) == TileShape::Half)
                 .view(spacing),
@@ -546,6 +554,7 @@ impl App {
                 )
                 .active(self.keyboard.is_on())
                 .style(self.config.appearance.style)
+                .finish(self.config.appearance.finish)
                 .on_press(Message::CycleKeyboard)
                 .compact(self.shape_of(TileKey::KeyboardBacklight) == TileShape::Half)
                 .view(spacing),
@@ -566,6 +575,7 @@ impl App {
                 )
                 .active(self.system.do_not_disturb)
                 .style(self.config.appearance.style)
+                .finish(self.config.appearance.finish)
                 .on_press(Message::ToggleDoNotDisturb)
                 .compact(self.shape_of(TileKey::DoNotDisturb) == TileShape::Half)
                 .view(spacing),
@@ -588,6 +598,7 @@ impl App {
                 )
                 .active(self.caffeine.is_on())
                 .style(self.config.appearance.style)
+                .finish(self.config.appearance.finish)
                 // No press while another program holds the lock — we cannot
                 // release someone else's inhibitor, so the button would do
                 // nothing. Same rule as Game Mode.
@@ -613,6 +624,7 @@ impl App {
                     entry.detail.clone().unwrap_or_else(|| entry.name.clone()),
                 )
                 .style(self.config.appearance.style)
+                .finish(self.config.appearance.finish)
                 .on_press(Message::RunCustom(index))
                 // Half is the icon-only form: the glyph is the whole tile and
                 // the name moves into the tooltip.
@@ -638,7 +650,7 @@ impl App {
                     } else {
                         SliderMode::Live
                     },
-                    spacing,
+                    crate::ui::Look::new(self.config.appearance.finish, spacing),
                 ),
             ));
         }
@@ -659,7 +671,7 @@ impl App {
                     } else {
                         SliderMode::Live
                     },
-                    spacing,
+                    crate::ui::Look::new(self.config.appearance.finish, spacing),
                 ),
             ));
         }
@@ -680,7 +692,7 @@ impl App {
                     } else {
                         SliderMode::Live
                     },
-                    spacing,
+                    crate::ui::Look::new(self.config.appearance.finish, spacing),
                 ),
             ));
         }

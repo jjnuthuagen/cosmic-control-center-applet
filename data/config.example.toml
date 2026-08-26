@@ -43,24 +43,61 @@ charge_threshold   = true   # hides itself unless the hardware supports it
 #              opening a control, the way the battery tile already works
 style = "high"
 
-# The order tiles are drawn in. Omitted or empty means the default order.
-# Rearrange from Settings (right-click the panel button, Tiles tab: tap a
-# tile to pick it up, tap where it should go) and this is written for you;
-# or list the names by hand. A tile you leave out is appended at the end in
-# default order, so nothing goes missing if a new tile is added later.
+# How a tile's own surface is painted — how much of the desktop's frosted
+# glass comes through it. Separate from `style`, which is about the on state.
 #
-#   order = ["connectivity", "battery", "dark-mode", "volume", "brightness"]
+#   "solid"   - a filled card (the default). Thins when the desktop's frosted
+#               styling is on, but still reads as a surface of its own.
+#   "frosted" - the blur comes through the tile, which stays denser than the
+#               popup around it so it still reads as a tile.
+#   "outline" - no fill: a faint edge only, and one unbroken sheet of frosted
+#               glass across the whole popup.
 #
-# Names: connectivity, wifi, bluetooth, vpn, battery, dns, dark-mode,
+# Frosted and outline only look different from solid when the desktop's
+# frosted styling is on (Settings -> Appearance), since that is what makes
+# the popup translucent in the first place.
+finish = "solid"
+
+# The grid: what is on it, at what size, and where.
+#
+# One [[appearance.layout]] block per tile. `col` is a sub-column 0-3 (a
+# square tile is two of them wide) and `row` counts from 0. A control can
+# appear several times, at several sizes, and a gap you leave is kept — the
+# grid is not re-packed around it.
+#
+# Arrange it from Settings (right-click the panel button, Tiles tab): drag a
+# tile to move it, and it lands only where there is room — nothing else
+# shifts to make way. Hover a tile for the - that removes it. Anything not on
+# the grid is listed underneath; tap it to add it back.
+#
+#   [[appearance.layout]]
+#   control = "battery"
+#   shape   = "small"
+#   col     = 0
+#   row     = 0
+#
+#   [[appearance.layout]]
+#   control = "battery"      # the same control again, bigger
+#   shape   = "wide"
+#   col     = 0
+#   row     = 1
+#
+# Controls: connectivity, wifi, bluetooth, vpn, battery, dns, dark-mode,
 # tiling, keyboard-backlight, do-not-disturb, keep-awake, volume,
 # brightness, microphone.
-
-# Per-tile shapes. "half" is icon-only, four to a row — the name and state
-# show on hover. Only tiles that are normally a square accept it; the
-# sliders and the Connectivity group ignore it. The other values are the
-# shapes each tile already has: "small", "wide", "tall".
 #
-#   shapes = { battery = "half", dns = "half", dark-mode = "half" }
+# Shapes: "half" is icon-only, four to a row, with the name on hover;
+# "small" is the plain square; "wide" is the full width; "tall" is two rows.
+# The sliders are always wide and Connectivity is always tall.
+#
+# Being on the grid is what shows a control. There is no second switch to
+# agree with: a control you have not placed is not drawn and its backend
+# never starts. (The [modules] table above still governs the three that have
+# no tile of their own — media, gamemode and charge_threshold.)
+#
+# Configs written before this existed used `order` and `shapes` instead.
+# Those are read once, converted to the layout above, and dropped the next
+# time the file is written — the grid looks exactly as it did.
 
 # What the panel button shows. Omitted, it is the "toggles" preset below.
 #
@@ -103,6 +140,10 @@ custom_providers = [
 #                       name is not in your theme it falls back rather than
 #                       drawing nothing.
 #   detail    optional  A second line under the name. Defaults to the name.
+#   shape     optional  "half" draws it icon-only, four to a row, with the
+#                       name on hover — usually what you want for a launcher.
+#                       Defaults to "small", the plain square. "wide" and
+#                       "tall" work too.
 #   enabled   optional  false hides the tile without deleting it. Defaults to
 #                       true. The Settings window writes this when you use the
 #                       switch under "Your tiles".
@@ -127,3 +168,11 @@ custom_providers = [
 # [[custom]]
 # name = "Lock"
 # command = ["loginctl", "lock-session"]
+#
+# A row of icon-only launchers:
+#
+# [[custom]]
+# name = "Terminal"
+# command = ["cosmic-term"]
+# icon = "com.system76.CosmicTerm"
+# shape = "half"

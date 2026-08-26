@@ -19,7 +19,7 @@ use cosmic::widget::{
 use cosmic::ApplicationExt;
 use cosmic::{Application, Element};
 
-use crate::config::{Config, PanelIcon, TileStyle};
+use crate::config::{Config, PanelIcon, TileFinish, TileStyle};
 use crate::fl;
 use crate::tile_layout::{TileKey, TileShape};
 use crate::ui::{
@@ -305,6 +305,7 @@ pub enum Message {
     IconSelected(std::path::PathBuf),
     OpenUrl(String),
     SetStyle(TileStyle),
+    SetFinish(TileFinish),
     SetIcon(PanelIcon),
     CustomInput(String),
     ApplyCustom,
@@ -513,6 +514,7 @@ impl Settings {
     /// One preview tile, using the real widgets with placeholder state.
     fn preview_tile(&self, key: TileKey, enabled: bool, spacing: Spacing) -> Element<'_, Message> {
         let style = self.config.appearance.style;
+        let finish = self.config.appearance.finish;
         let label = |ftl: &str| crate::i18n::lookup(ftl, None);
 
         match key {
@@ -535,7 +537,13 @@ impl Settings {
                 .collect();
                 // The popup's own Tall height: with the switch rows gone, a
                 // preview cell is exactly a tile again.
-                connectivity_tile(rows, crate::ui::tall_height(spacing), style, spacing)
+                connectivity_tile(
+                    rows,
+                    crate::ui::tall_height(spacing),
+                    style,
+                    finish,
+                    spacing,
+                )
             }
             TileKey::Volume => wide_slider_tile(
                 icons::volume(60.0, false),
@@ -544,7 +552,7 @@ impl Settings {
                 |_| Message::Noop,
                 None,
                 SliderMode::Inert,
-                spacing,
+                crate::ui::Look::new(self.config.appearance.finish, spacing),
             ),
             TileKey::Brightness => wide_slider_tile(
                 icons::brightness(70.0, false),
@@ -553,7 +561,7 @@ impl Settings {
                 |_| Message::Noop,
                 None,
                 SliderMode::Inert,
-                spacing,
+                crate::ui::Look::new(self.config.appearance.finish, spacing),
             ),
             TileKey::Microphone => wide_slider_tile(
                 icons::microphone(50.0, false),
@@ -562,7 +570,7 @@ impl Settings {
                 |_| Message::Noop,
                 None,
                 SliderMode::Inert,
-                spacing,
+                crate::ui::Look::new(self.config.appearance.finish, spacing),
             ),
             other => {
                 let (icon, ftl) = match other {
@@ -588,6 +596,7 @@ impl Settings {
                 Tile::new(icon, label(ftl), label(ftl))
                     .active(enabled)
                     .style(style)
+                    .finish(finish)
                     .compact(key.shape_with(&self.config.appearance.shapes) == TileShape::Half)
                     .view(spacing)
             }
@@ -640,6 +649,24 @@ impl Settings {
                     button::standard(fl!("open-config-folder")).on_press(Message::OpenConfigFolder),
                 ),
         );
+
+        section = section.push(text::title4(fl!("settings-finish")));
+        section = section.push(text::caption(fl!("settings-finish-detail")));
+        for finish in TileFinish::ALL {
+            section = section.push(
+                column::with_capacity(2)
+                    .push(radio(
+                        text::body(crate::i18n::lookup(finish.l10n_key(), None)),
+                        finish,
+                        Some(self.config.appearance.finish),
+                        Message::SetFinish,
+                    ))
+                    .push(text::caption(crate::i18n::lookup(
+                        finish.description_key(),
+                        None,
+                    ))),
+            );
+        }
 
         section.into()
     }
@@ -976,6 +1003,10 @@ impl Application for Settings {
             }
             Message::SetStyle(style) => {
                 self.config.appearance.style = style;
+                self.save();
+            }
+            Message::SetFinish(finish) => {
+                self.config.appearance.finish = finish;
                 self.save();
             }
             Message::SetIcon(icon) => {

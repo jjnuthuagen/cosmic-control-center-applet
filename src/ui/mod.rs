@@ -24,7 +24,7 @@ use cosmic::widget::{
 };
 use cosmic::{theme, Element};
 
-use crate::config::TileStyle;
+use crate::config::{TileFinish, TileStyle};
 use crate::tile_layout::Slot;
 
 /// Icon size inside a tile and a list row.
@@ -126,6 +126,7 @@ pub struct Tile<'a, Msg> {
     name: String,
     active: bool,
     style: TileStyle,
+    finish: TileFinish,
     on_press: Option<Msg>,
 }
 
@@ -141,6 +142,7 @@ impl<'a, Msg: Clone + 'static> Tile<'a, Msg> {
             name: name.into(),
             active: false,
             style: TileStyle::default(),
+            finish: TileFinish::default(),
             on_press: None,
             compact: false,
         }
@@ -149,6 +151,12 @@ impl<'a, Msg: Clone + 'static> Tile<'a, Msg> {
     /// How strongly to signal the on state. See [`TileStyle`].
     pub fn style(mut self, style: TileStyle) -> Self {
         self.style = style;
+        self
+    }
+
+    /// How the tile's own surface is painted. See [`TileFinish`].
+    pub fn finish(mut self, finish: TileFinish) -> Self {
+        self.finish = finish;
         self
     }
 
@@ -229,7 +237,7 @@ impl<'a, Msg: Clone + 'static> Tile<'a, Msg> {
             .class(if filled {
                 button::ButtonClass::Suggested
             } else {
-                tile_button_class()
+                tile_button_class(self.finish)
             })
             .width(Length::Fill)
             .height(Length::Fixed(tile_height(spacing)));
@@ -279,17 +287,66 @@ fn tile_component(theme: &cosmic::Theme) -> cosmic::cosmic_theme::Component {
         .clone()
 }
 
+/// How much of the card colour a finish actually paints, and whether it
+/// draws an edge instead.
+///
+/// One place, so a button tile and a container tile cannot disagree about
+/// what "frosted" means.
+fn finish_paint(
+    _theme: &cosmic::Theme,
+    finish: TileFinish,
+    fill: cosmic::cosmic_theme::palette::Srgba,
+) -> (Option<Color>, f32) {
+    let mut fill = fill;
+    match finish {
+        TileFinish::Solid => (Some(Color::from(fill)), 0.0),
+        TileFinish::Frosted => {
+            // Denser than the popup's own glass (~0.78 of it) so the tile is
+            // unmistakably a surface, but thin enough that the blur behind is
+            // still the thing you see.
+            fill.alpha *= FROSTED_TILE_ALPHA;
+            (Some(Color::from(fill)), 0.0)
+        }
+        // No fill: the popup's frost runs unbroken behind every tile, and the
+        // edge alone says where one tile stops and the next starts.
+        TileFinish::Outline => (None, 1.0),
+    }
+}
+
+/// How much of the card colour a `Frosted` tile keeps.
+///
+/// Chosen against the popup background, which is itself ~0.78 alpha under
+/// frost: much lower and the tiles stop reading as tiles, much higher and
+/// there is no visible difference from `Solid`.
+const FROSTED_TILE_ALPHA: f32 = 0.55;
+
+/// The edge a tile draws, for the finishes that have one.
+fn tile_border(theme: &cosmic::Theme, width: f32) -> Border {
+    let cosmic = theme.cosmic();
+    let mut edge = cosmic.background(theme.transparent).component.divider;
+    // The divider colour is already a faint on-surface wash; half of it again
+    // keeps an outlined grid quiet enough not to look like a table.
+    edge.alpha *= 0.7;
+    Border {
+        radius: cosmic.corner_radii.radius_s.into(),
+        width,
+        color: if width > 0.0 {
+            Color::from(edge)
+        } else {
+            Color::TRANSPARENT
+        },
+    }
+}
+
 /// The surface every non-button tile draws on: the same fill a tile button
 /// gets from [`tile_button_class`].
-fn tile_surface<'a>() -> theme::Container<'a> {
-    theme::Container::Custom(Box::new(|theme| {
+fn tile_surface<'a>(finish: TileFinish) -> theme::Container<'a> {
+    theme::Container::Custom(Box::new(move |theme| {
         let component = tile_component(theme);
+        let (fill, edge) = finish_paint(theme, finish, component.base);
         container::Style {
-            background: Some(Background::Color(component.base.into())),
-            border: Border {
-                radius: theme.cosmic().corner_radii.radius_s.into(),
-                ..Default::default()
-            },
+            background: fill.map(Background::Color),
+            border: tile_border(theme, edge),
             ..Default::default()
         }
     }))
@@ -301,22 +358,37 @@ fn tile_surface<'a>() -> theme::Container<'a> {
 /// Text and icon colours are left unset so they inherit, exactly as
 /// `ButtonClass::Standard` leaves them — see the note on [`quiet_button`] for
 /// what happens to a class that sets them instead.
-fn tile_button_class() -> button::ButtonClass {
-    fn style(theme: &cosmic::Theme, fill: cosmic::cosmic_theme::palette::Srgba) -> button::Style {
+fn tile_button_class(finish: TileFinish) -> button::ButtonClass {
+    fn style(
+        theme: &cosmic::Theme,
+        finish: TileFinish,
+        fill: cosmic::cosmic_theme::palette::Srgba,
+    ) -> button::Style {
+        let (fill, edge) = finish_paint(theme, finish, fill);
+        let border = tile_border(theme, edge);
         button::Style {
-            background: Some(Background::Color(Color::from(fill))),
-            border_radius: theme.cosmic().corner_radii.radius_s.into(),
+            background: fill.map(Background::Color),
+            border_radius: border.radius,
+            border_width: border.width,
+            border_color: border.color,
             text_color: None,
             icon_color: None,
             ..button::Style::new()
         }
     }
 
+    // An outlined tile still has to answer the pointer, so hover and pressed
+    // paint their wash whatever the finish — a tile that does nothing under
+    // the cursor reads as a label, not a control.
     button::ButtonClass::Custom {
-        active: Box::new(|_focused, theme| style(theme, tile_component(theme).base)),
-        disabled: Box::new(|theme| style(theme, tile_component(theme).disabled)),
-        hovered: Box::new(|_focused, theme| style(theme, tile_component(theme).hover)),
-        pressed: Box::new(|_focused, theme| style(theme, tile_component(theme).pressed)),
+        active: Box::new(move |_focused, theme| style(theme, finish, tile_component(theme).base)),
+        disabled: Box::new(move |theme| style(theme, finish, tile_component(theme).disabled)),
+        hovered: Box::new(move |_focused, theme| {
+            style(theme, TileFinish::Solid, tile_component(theme).hover)
+        }),
+        pressed: Box::new(move |_focused, theme| {
+            style(theme, TileFinish::Solid, tile_component(theme).pressed)
+        }),
     }
 }
 
@@ -577,6 +649,7 @@ pub fn connectivity_tile<'a, Msg: Clone + 'static>(
     rows: Vec<ConnectivityRow<'a, Msg>>,
     height: f32,
     style: TileStyle,
+    finish: TileFinish,
     spacing: Spacing,
 ) -> Element<'a, Msg> {
     // Each row is exactly `connectivity_row_height`, spaced by
@@ -651,7 +724,7 @@ pub fn connectivity_tile<'a, Msg: Clone + 'static>(
         .padding(spacing.padding())
         .width(Length::Fill)
         .height(Length::Fixed(height))
-        .class(tile_surface())
+        .class(tile_surface(finish))
         .into()
 }
 
@@ -735,6 +808,23 @@ pub enum SliderMode {
     Inert,
 }
 
+/// How a tile is drawn: its surface, and the metrics it is drawn to.
+///
+/// The two always travel together — every widget that paints a tile needs
+/// both, and they both come from the same place — so they are one value
+/// rather than two more parameters on every signature.
+#[derive(Debug, Clone, Copy)]
+pub struct Look {
+    pub finish: TileFinish,
+    pub spacing: Spacing,
+}
+
+impl Look {
+    pub fn new(finish: TileFinish, spacing: Spacing) -> Self {
+        Self { finish, spacing }
+    }
+}
+
 pub fn wide_slider_tile<'a, Msg: Clone + 'static>(
     icon_name: &'a str,
     label: impl Into<String>,
@@ -742,8 +832,9 @@ pub fn wide_slider_tile<'a, Msg: Clone + 'static>(
     on_change: impl Fn(f64) -> Msg + 'a,
     on_icon_press: Option<Msg>,
     mode: SliderMode,
-    spacing: Spacing,
+    look: Look,
 ) -> Element<'a, Msg> {
+    let Look { finish, spacing } = look;
     let leading: Element<'a, Msg> = match on_icon_press.filter(|_| mode != SliderMode::Inert) {
         Some(msg) => button::icon(icon::from_name(icon_name).size(ICON_SIZE))
             .padding(spacing.pad_y / 2)
@@ -775,7 +866,7 @@ pub fn wide_slider_tile<'a, Msg: Clone + 'static>(
         .width(Length::Fill)
         .height(Length::Fixed(tile_height(spacing)))
         .align_y(Alignment::Center)
-        .class(tile_surface())
+        .class(tile_surface(finish))
         .into();
 
     tooltip(tile, text::body(label.into()), tooltip::Position::Top).into()
@@ -957,7 +1048,7 @@ mod tests {
         );
 
         // Both tile kinds ask the same question, so they cannot drift.
-        let class = tile_button_class();
+        let class = tile_button_class(TileFinish::Solid);
         let button_fill = match theme.active(false, false, &class).background {
             Some(cosmic::iced::Background::Color(c)) => c,
             other => panic!("a tile button must paint a colour, got {other:?}"),
@@ -970,6 +1061,52 @@ mod tests {
         // Left to inherit, exactly as ButtonClass::Standard leaves them.
         let style = theme.active(false, false, &class);
         assert!(style.text_color.is_none() && style.icon_color.is_none());
+    }
+
+    #[test]
+    fn each_finish_paints_a_different_amount_of_the_card() {
+        use cosmic::widget::button::Catalog;
+
+        let mut theme = cosmic::Theme::dark();
+        theme.transparent = true;
+
+        let fill = |finish| match theme
+            .active(false, false, &tile_button_class(finish))
+            .background
+        {
+            Some(cosmic::iced::Background::Color(c)) => Some(c.a),
+            _ => None,
+        };
+
+        let solid = fill(TileFinish::Solid).expect("solid fills");
+        let frosted = fill(TileFinish::Frosted).expect("frosted fills");
+
+        // Frosted lets more of the blur through than solid, but is still a
+        // surface — not so thin it stops reading as a tile.
+        assert!(frosted < solid, "{frosted} !< {solid}");
+        assert!(
+            frosted > solid * 0.3,
+            "frosted is too thin to read as a tile"
+        );
+
+        // Outline paints nothing and says where the tile is with an edge.
+        assert!(fill(TileFinish::Outline).is_none());
+        let outlined = theme.active(false, false, &tile_button_class(TileFinish::Outline));
+        assert!(outlined.border_width > 0.0);
+        assert!(outlined.border_color.a > 0.0);
+        // The filled finishes carry no edge — the fill is the boundary.
+        assert_eq!(
+            theme
+                .active(false, false, &tile_button_class(TileFinish::Solid))
+                .border_width,
+            0.0
+        );
+
+        // An outlined tile still answers the pointer, or it reads as a label.
+        assert!(theme
+            .hovered(false, false, &tile_button_class(TileFinish::Outline))
+            .background
+            .is_some());
     }
 
     #[test]
