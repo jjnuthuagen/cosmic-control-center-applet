@@ -16,6 +16,7 @@ use crate::modules::{
     battery, bluetooth, brightness, caffeine, custom, dns, gamemode, keyboard, media, network,
     system, tiling, volume, vpn,
 };
+use crate::tile_layout::TileKey;
 use crate::ui::icons;
 
 /// Exit code when at least one enabled module could not be read.
@@ -30,10 +31,23 @@ struct Report {
     result: Result<String, String>,
 }
 
+/// Whether this control has a consumer: an instance on the grid, or — for the
+/// three the Connectivity group draws rows for — that group.
+///
+/// Mirrors `App::wanted`. `[modules]` no longer decides whether a tile is
+/// drawn; being placed does. Reporting from the old table said "disabled in
+/// config.toml" about controls the user had simply not placed.
+fn wanted(config: &Config, key: TileKey) -> bool {
+    let placed = |k: TileKey| config.appearance.layout.iter().any(|i| i.control == k);
+    let via_group = matches!(key, TileKey::Wifi | TileKey::Bluetooth | TileKey::Vpn)
+        && placed(TileKey::Connectivity);
+    placed(key) || via_group
+}
+
 impl Report {
     fn line(&self) -> String {
         if !self.enabled {
-            return format!("  {:<11} disabled in config.toml", self.name);
+            return format!("  {:<11} not on the grid", self.name);
         }
         match &self.result {
             Ok(detail) => format!("  {:<11} ok       {detail}", self.name),
@@ -220,42 +234,42 @@ pub async fn run() -> i32 {
     let reports = vec![
         Report {
             name: "wifi",
-            enabled: config.modules.wifi,
+            enabled: wanted(&config, TileKey::Wifi),
             result: network::probe().await,
         },
         Report {
             name: "bluetooth",
-            enabled: config.modules.bluetooth,
+            enabled: wanted(&config, TileKey::Bluetooth),
             result: bluetooth::probe().await,
         },
         Report {
             name: "battery",
-            enabled: config.modules.battery,
+            enabled: wanted(&config, TileKey::Battery),
             result: battery::probe().await,
         },
         Report {
             name: "dns",
-            enabled: config.modules.dns,
+            enabled: wanted(&config, TileKey::Dns),
             result: dns::probe().await,
         },
         Report {
             name: "volume",
-            enabled: config.modules.volume,
+            enabled: wanted(&config, TileKey::Volume),
             result: volume::probe(volume::Direction::Output).await,
         },
         Report {
             name: "microphone",
-            enabled: config.modules.microphone,
+            enabled: wanted(&config, TileKey::Microphone),
             result: volume::probe(volume::Direction::Input).await,
         },
         Report {
             name: "keyboard",
-            enabled: config.modules.keyboard_backlight,
+            enabled: wanted(&config, TileKey::KeyboardBacklight),
             result: keyboard::probe(),
         },
         Report {
             name: "brightness",
-            enabled: config.modules.brightness,
+            enabled: wanted(&config, TileKey::Brightness),
             result: brightness::probe(),
         },
         Report {
@@ -265,7 +279,7 @@ pub async fn run() -> i32 {
         },
         Report {
             name: "tiling",
-            enabled: config.modules.tiling,
+            enabled: wanted(&config, TileKey::Tiling),
             result: tiling::probe(),
         },
         Report {
@@ -275,12 +289,12 @@ pub async fn run() -> i32 {
         },
         Report {
             name: "vpn",
-            enabled: config.modules.vpn,
+            enabled: wanted(&config, TileKey::Vpn),
             result: vpn::probe().await,
         },
         Report {
             name: "keep-awake",
-            enabled: config.modules.keep_awake,
+            enabled: wanted(&config, TileKey::KeepAwake),
             result: caffeine::probe().await,
         },
         Report {
@@ -291,7 +305,7 @@ pub async fn run() -> i32 {
         },
         Report {
             name: "desktop",
-            enabled: config.modules.dark_mode,
+            enabled: wanted(&config, TileKey::DarkMode),
             result: system::probe(),
         },
     ];
