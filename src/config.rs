@@ -127,11 +127,15 @@ impl TileStyle {
 pub enum TileFinish {
     /// A filled card. Frost-aware — it thins when the desktop's frosted
     /// styling is on — but still reads as a solid surface on the glass.
-    #[default]
     Solid,
     /// A frosted card: the blur behind comes through, but the tile is clearly
     /// denser than the popup around it, so it still reads as a distinct
     /// surface rather than a smudge.
+    ///
+    /// The default. With the popup's blur working this is the look the
+    /// desktop's own frosted styling is asking for; `Solid` keeps the tiles
+    /// opaque for anyone who would rather read them than see through them.
+    #[default]
     Frosted,
     /// No fill at all — a semi-transparent stroke, and one uninterrupted
     /// sheet of frosted glass across the whole popup.

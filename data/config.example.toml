@@ -46,17 +46,17 @@ style = "high"
 # How a tile's own surface is painted — how much of the desktop's frosted
 # glass comes through it. Separate from `style`, which is about the on state.
 #
-#   "solid"   - a filled card (the default). Thins when the desktop's frosted
-#               styling is on, but still reads as a surface of its own.
-#   "frosted" - the blur comes through the tile, which stays denser than the
-#               popup around it so it still reads as a tile.
+#   "solid"   - a filled card. Thins when the desktop's frosted styling is
+#               on, but still reads as a surface of its own.
+#   "frosted" - the default. The blur comes through the tile, which stays
+#               denser than the popup around it so it still reads as a tile.
 #   "outline" - no fill: a faint edge only, and one unbroken sheet of frosted
 #               glass across the whole popup.
 #
 # Frosted and outline only look different from solid when the desktop's
 # frosted styling is on (Settings -> Appearance), since that is what makes
 # the popup translucent in the first place.
-finish = "solid"
+finish = "frosted"
 
 # The grid: what is on it, at what size, and where.
 #

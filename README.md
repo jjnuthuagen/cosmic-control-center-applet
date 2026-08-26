@@ -33,7 +33,7 @@ Tiles come in four shapes on a four-sub-column grid:
 | Half | ½ × 1 | Icon only, four to a row — name and state on hover |
 | Small | 1 × 1 | Most controls |
 | Tall | 1 × 2 | Connectivity — Wi-Fi, Bluetooth and VPN stacked, a switch each |
-| Wide | 2 × 1 | Volume, brightness, microphone: icon, track, percentage |
+| Wide | 2 × 1 | Volume, brightness, microphone: icon, track, percentage. Battery, DNS, Keep Awake and Keyboard Backlight also have a Wide form — the same one line, with room for the power profile beside the charge, the servers beside the provider, or a holder's name in full |
 
 **Free placement.** A tile sits exactly where you put it. Nothing is packed
 and nothing is re-flowed: a gap you leave is a gap you keep, and the same
@@ -58,8 +58,9 @@ per tile, each naming a control, a shape and a cell. A config from before
 free placement is converted on first read and looks exactly as it did.
 
 **How tiles are painted** is a separate choice, on the Styling tab, from
-`solid` (a filled card), through `frosted` (the blur comes through, but the
-tile stays denser than the popup so it still reads as a tile), to `outline`
+`solid` (a filled card), through `frosted` (the default: the blur comes
+through, but the tile stays denser than the popup so it still reads as a
+tile), to `outline`
 (no fill at all — a faint edge, and one unbroken sheet of frosted glass
 across the whole popup). The last two only look different from `solid` when
 the desktop's frosted styling is on, since that is what makes the popup

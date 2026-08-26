@@ -450,6 +450,15 @@ impl App {
                     tile = tile.on_press(Message::Navigate(Page::Battery));
                 }
 
+                // Wide has room for the power profile beside the charge — the
+                // thing the tile deliberately drops at Small, where
+                // "17% · Balan…" was worse than showing no profile at all.
+                if shape == TileShape::Wide {
+                    tile = tile.wide(true);
+                    if let Some(profile) = self.battery.active_profile {
+                        tile = tile.detail(fl!(profile.l10n_key()));
+                    }
+                }
                 Some(
                     tile.style(self.config.appearance.style)
                         .finish(self.config.appearance.finish)
@@ -463,9 +472,21 @@ impl App {
                     .active()
                     .map_or_else(|| fl!("dns-custom"), provider_label);
 
+                let mut tile = Tile::new(icons::dns(), fl!("dns"), state);
+                // The provider names the choice; the servers are what it
+                // actually resolves through, which is otherwise a page away.
+                if shape == TileShape::Wide && !self.dns.current.is_empty() {
+                    tile = tile.wide(true).detail(
+                        self.dns
+                            .current
+                            .iter()
+                            .map(std::string::ToString::to_string)
+                            .collect::<Vec<_>>()
+                            .join(", "),
+                    );
+                }
                 Some(
-                    Tile::new(icons::dns(), fl!("dns"), state)
-                        .on_press(Message::Navigate(Page::Dns))
+                    tile.on_press(Message::Navigate(Page::Dns))
                         .style(self.config.appearance.style)
                         .finish(self.config.appearance.finish)
                         .compact(shape == TileShape::Half)
@@ -536,6 +557,7 @@ impl App {
                 .style(self.config.appearance.style)
                 .finish(self.config.appearance.finish)
                 .on_press(Message::CycleKeyboard)
+                .wide(shape == TileShape::Wide)
                 .compact(shape == TileShape::Half)
                 .view(spacing),
             ),
@@ -586,6 +608,7 @@ impl App {
                             .can_toggle()
                             .then_some(Message::ToggleKeepAwake),
                     )
+                    .wide(shape == TileShape::Wide)
                     .compact(shape == TileShape::Half)
                     .view(spacing),
                 )

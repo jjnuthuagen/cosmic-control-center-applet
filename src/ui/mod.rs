@@ -113,6 +113,10 @@ fn icon_base_padding(spacing: Spacing) -> f32 {
 /// [`POPUP_WIDTH`]: crate::app::POPUP_WIDTH
 const MAX_STATE_CHARS: usize = 14;
 
+/// What a Wide tile can show instead. Four sub-columns rather than two, so
+/// roughly twice the room before anything has to be cut.
+const MAX_WIDE_STATE_CHARS: usize = 30;
+
 /// A grid tile: an icon and the thing's current state.
 pub struct Tile<'a, Msg> {
     /// Icon only — the Half shape. Name and state move into the tooltip,
@@ -127,6 +131,12 @@ pub struct Tile<'a, Msg> {
     active: bool,
     style: TileStyle,
     finish: TileFinish,
+    /// The Wide shape: the same one line, with room to say more.
+    wide: bool,
+    /// A second, quieter fact shown at the trailing edge of a Wide tile —
+    /// the power profile beside the charge, the servers beside the provider.
+    /// Ignored unless `wide`, because a Small tile has nowhere to put it.
+    detail: Option<String>,
     on_press: Option<Msg>,
 }
 
@@ -143,6 +153,8 @@ impl<'a, Msg: Clone + 'static> Tile<'a, Msg> {
             active: false,
             style: TileStyle::default(),
             finish: TileFinish::default(),
+            wide: false,
+            detail: None,
             on_press: None,
             compact: false,
         }
@@ -151,6 +163,19 @@ impl<'a, Msg: Clone + 'static> Tile<'a, Msg> {
     /// How strongly to signal the on state. See [`TileStyle`].
     pub fn style(mut self, style: TileStyle) -> Self {
         self.style = style;
+        self
+    }
+
+    /// Draw the Wide form: one line still, but with room for a longer state
+    /// and a trailing detail.
+    pub fn wide(mut self, wide: bool) -> Self {
+        self.wide = wide;
+        self
+    }
+
+    /// The quieter fact at the trailing edge. Only drawn when [`Self::wide`].
+    pub fn detail(mut self, detail: impl Into<String>) -> Self {
+        self.detail = Some(detail.into());
         self
     }
 
@@ -209,12 +234,17 @@ impl<'a, Msg: Clone + 'static> Tile<'a, Msg> {
                 .align_x(Alignment::Center)
                 .into()
         } else {
-            row::with_capacity(2)
+            let limit = if self.wide {
+                MAX_WIDE_STATE_CHARS
+            } else {
+                MAX_STATE_CHARS
+            };
+            let mut line = row::with_capacity(3)
                 .align_y(Alignment::Center)
                 .spacing(spacing.gap)
                 .push(glyph)
                 .push(
-                    text::body(truncate(&self.state, MAX_STATE_CHARS))
+                    text::body(truncate(&self.state, limit))
                         .width(Length::Fill)
                         // Tiles are a fixed height sized for one line. Without
                         // this a long state string wraps, and the tile's
@@ -222,8 +252,17 @@ impl<'a, Msg: Clone + 'static> Tile<'a, Msg> {
                         // neighbour. Character truncation alone is not enough:
                         // it counts characters, and what overflows is pixels.
                         .wrapping(cosmic::iced::widget::text::Wrapping::None),
-                )
-                .into()
+                );
+            // The detail sits at the trailing edge, in caption weight: it is
+            // the thing you read second. `Fill` is already spent on the state,
+            // so this takes only what it needs and the state gives way first.
+            if let Some(detail) = self.detail.filter(|_| self.wide) {
+                line = line.push(
+                    text::caption(truncate(&detail, MAX_STATE_CHARS))
+                        .wrapping(cosmic::iced::widget::text::Wrapping::None),
+                );
+            }
+            line.into()
         };
 
         // Only `High` tints the whole tile. `Medium` carries the signal on the
@@ -317,8 +356,10 @@ fn finish_paint(
 ///
 /// Chosen against the popup background, which is itself ~0.78 alpha under
 /// frost: much lower and the tiles stop reading as tiles, much higher and
-/// there is no visible difference from `Solid`.
-const FROSTED_TILE_ALPHA: f32 = 0.55;
+/// there is no visible difference from `Solid`. Raised from 0.55 once the
+/// popup's blur actually worked — against a genuinely blurred backdrop the
+/// thinner value left the tiles reading as smudges rather than surfaces.
+const FROSTED_TILE_ALPHA: f32 = 0.68;
 
 /// The edge a tile draws, for the finishes that have one.
 fn tile_border(theme: &cosmic::Theme, width: f32) -> Border {
@@ -1061,6 +1102,23 @@ mod tests {
         // Left to inherit, exactly as ButtonClass::Standard leaves them.
         let style = theme.active(false, false, &class);
         assert!(style.text_color.is_none() && style.icon_color.is_none());
+    }
+
+    #[test]
+    fn a_wide_tile_keeps_more_of_its_state_than_a_small_one() {
+        // The point of a Wide form: the same one line, with room to say the
+        // thing a Small tile had to cut. "17% · Balan…" is what this avoids.
+        let state = "Held by cosmic-media-player-session";
+        assert!(state.chars().count() > MAX_WIDE_STATE_CHARS);
+
+        let small = truncate(state, MAX_STATE_CHARS);
+        let wide = truncate(state, MAX_WIDE_STATE_CHARS);
+        assert!(wide.chars().count() > small.chars().count());
+        const { assert!(MAX_WIDE_STATE_CHARS > MAX_STATE_CHARS) };
+
+        // A state that fits the wide limit is not cut at all.
+        let short = "Balanced";
+        assert_eq!(truncate(short, MAX_WIDE_STATE_CHARS), short);
     }
 
     #[test]
