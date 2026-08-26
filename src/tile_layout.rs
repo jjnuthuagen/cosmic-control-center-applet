@@ -486,6 +486,252 @@ pub fn pack(shapes: &[TileShape], columns: u16) -> Pack {
     }
 }
 
+
+/// One placed tile: a control, the shape it is drawn at, and where its
+/// top-left cell sits.
+///
+/// This is the unit of the free-placement layout. Position is explicit and
+/// 0-based — `col` in sub-columns out of [`GRID_COLUMNS`], `row` unbounded —
+/// so the same control can appear several times at several sizes, and a gap
+/// the user left stays a gap. Contrast [`Placement`], the packer's 1-based
+/// output that the band cutter consumes.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct Instance {
+    pub control: TileKey,
+    pub shape: TileShape,
+    pub col: u16,
+    pub row: u16,
+}
+
+impl Instance {
+    pub fn new(control: TileKey, shape: TileShape, col: u16, row: u16) -> Self {
+        Self {
+            control,
+            shape,
+            col,
+            row,
+        }
+    }
+
+    /// The 1-based placement the band cutter draws this instance at.
+    // Used by the render path in the next commit of this series.
+    #[allow(dead_code)]
+    pub fn placement(self) -> Placement {
+        Placement {
+            column: self.col + 1,
+            row: self.row + 1,
+            width: self.shape.columns() as u16,
+            height: self.shape.rows() as u16,
+        }
+    }
+
+    fn cells(self) -> impl Iterator<Item = (u16, u16)> {
+        let cols = self.col..(self.col + self.shape.columns() as u16);
+        let rows = self.row..(self.row + self.shape.rows() as u16);
+        cols.flat_map(move |c| rows.clone().map(move |r| (c, r)))
+    }
+
+    fn in_bounds(self) -> bool {
+        self.col as usize + self.shape.columns() <= GRID_COLUMNS as usize
+    }
+}
+
+/// Whether a `shape` dropped with its top-left at (`col`, `row`) would land
+/// entirely on free, in-bounds cells of `layout`.
+///
+/// This is what a drop consults. Rows are unbounded, so only the column edge
+/// can be out of bounds.
+pub fn free_at(layout: &[Instance], shape: TileShape, col: u16, row: u16) -> bool {
+    // The control is irrelevant to geometry; any key will do.
+    let probe = Instance::new(TileKey::Battery, shape, col, row);
+    if !probe.in_bounds() {
+        return false;
+    }
+    let taken: std::collections::HashSet<(u16, u16)> =
+        layout.iter().flat_map(|i| i.cells()).collect();
+    probe.cells().all(|c| !taken.contains(&c))
+}
+
+/// The first free cell, row-major, that fits `shape`.
+///
+/// Always succeeds: rows are unbounded, so at worst the answer is the row
+/// below everything. Used when the palette adds a tile without a drop target.
+// Consumed by the Settings palette later in this series.
+#[allow(dead_code)]
+pub fn first_free(layout: &[Instance], shape: TileShape) -> (u16, u16) {
+    let last_row = layout
+        .iter()
+        .map(|i| i.row + i.shape.rows() as u16)
+        .max()
+        .unwrap_or(0);
+    for row in 0..=last_row {
+        for col in 0..GRID_COLUMNS {
+            if free_at(layout, shape, col, row) {
+                return (col, row);
+            }
+        }
+    }
+    unreachable!("the row below every instance is always free")
+}
+
+/// Drop any instance that overlaps an earlier one or hangs past the right
+/// edge. First-placed wins; what is dropped is logged.
+///
+/// Called on load (a hand-edited config can overlap) and after every edit
+/// before save, so the render path never sees overlapping tiles.
+pub fn validate(layout: &[Instance]) -> Vec<Instance> {
+    let mut kept: Vec<Instance> = Vec::with_capacity(layout.len());
+    for &instance in layout {
+        if !instance.in_bounds() {
+            tracing::warn!("dropping {instance:?}: past the right edge of the grid");
+            continue;
+        }
+        if !free_at(&kept, instance.shape, instance.col, instance.row) {
+            tracing::warn!("dropping {instance:?}: overlaps an earlier tile");
+            continue;
+        }
+        kept.push(instance);
+    }
+    kept
+}
+
+/// Build a layout from the pre-0.2 `order` + `shapes` model.
+///
+/// Runs the old packer once, so a migrated config opens exactly as 0.1.6
+/// drew it. The `is_enabled` predicate is the `[modules]` switch: a control
+/// switched off gets no instance, which under the derived-selection rule is
+/// the same thing as being off.
+pub fn migrate_from_packed(
+    order: &[TileKey],
+    shapes: &std::collections::HashMap<TileKey, TileShape>,
+    is_enabled: impl Fn(TileKey) -> bool,
+) -> Vec<Instance> {
+    let keys = resolve_order(order, is_enabled);
+    let shapes: Vec<TileShape> = keys.iter().map(|k| k.shape_with(shapes)).collect();
+    let packed = pack(&shapes, GRID_COLUMNS);
+    keys.iter()
+        .zip(shapes)
+        .zip(packed.tiles)
+        .map(|((&control, shape), p)| Instance::new(control, shape, p.column - 1, p.row - 1))
+        .collect()
+}
+
+#[cfg(test)]
+mod instance_tests {
+    use super::*;
+    use TileKey::{Battery, Dns, Volume};
+    use TileShape::{Half, Small, Tall, Wide};
+
+    fn at(control: TileKey, shape: TileShape, col: u16, row: u16) -> Instance {
+        Instance::new(control, shape, col, row)
+    }
+
+    #[test]
+    fn an_empty_grid_is_free_everywhere_in_bounds() {
+        assert!(free_at(&[], Wide, 0, 0));
+        assert!(free_at(&[], Small, 2, 7));
+        // A Small at sub-column 3 would hang one cell past the edge.
+        assert!(!free_at(&[], Small, 3, 0));
+        assert!(!free_at(&[], Wide, 1, 0));
+        assert!(!free_at(&[], Half, GRID_COLUMNS, 0));
+    }
+
+    #[test]
+    fn a_footprint_touching_an_occupied_cell_is_not_free() {
+        let layout = [at(Battery, Small, 0, 0)];
+        assert!(!free_at(&layout, Half, 1, 0)); // inside it
+        assert!(free_at(&layout, Half, 2, 0)); // right beside it
+        assert!(!free_at(&layout, Wide, 0, 0)); // spans it
+        assert!(free_at(&layout, Wide, 0, 1)); // row below
+        // A Tall from the row above reaches down into row 1.
+        let tall = [at(Volume, Tall, 0, 0)];
+        assert!(!free_at(&tall, Small, 0, 1));
+        assert!(free_at(&tall, Small, 2, 1));
+    }
+
+    #[test]
+    fn first_free_scans_row_major_and_falls_through_to_a_new_row() {
+        let layout = [at(Battery, Small, 0, 0), at(Dns, Small, 2, 0)];
+        assert_eq!(first_free(&layout, Half), (0, 1));
+        let with_gap = [at(Battery, Half, 0, 0), at(Dns, Small, 2, 0)];
+        assert_eq!(first_free(&with_gap, Half), (1, 0));
+        assert_eq!(first_free(&with_gap, Small), (0, 1));
+        assert_eq!(first_free(&[], Wide), (0, 0));
+    }
+
+    #[test]
+    fn validate_drops_overlaps_first_wins_and_keeps_gaps() {
+        let layout = [
+            at(Battery, Small, 0, 0),
+            at(Dns, Small, 1, 0), // overlaps Battery
+            at(Dns, Small, 2, 0), // fine
+            at(Volume, Wide, 0, 5), // gap rows 1–4 kept, not packed
+        ];
+        let kept = validate(&layout);
+        assert_eq!(
+            kept,
+            vec![at(Battery, Small, 0, 0), at(Dns, Small, 2, 0), at(Volume, Wide, 0, 5)]
+        );
+    }
+
+    #[test]
+    fn validate_drops_out_of_bounds() {
+        let kept = validate(&[at(Battery, Small, 3, 0), at(Volume, Wide, 0, 0)]);
+        assert_eq!(kept, vec![at(Volume, Wide, 0, 0)]);
+    }
+
+    #[test]
+    fn validate_allows_duplicates_of_a_control() {
+        let layout = [at(Battery, Small, 0, 0), at(Battery, Wide, 0, 1)];
+        assert_eq!(validate(&layout), layout.to_vec());
+    }
+
+    #[test]
+    fn migration_reproduces_the_packer_cell_for_cell() {
+        // A representative 0.1.6 config: custom order, one Half override,
+        // the standalone connectivity tiles switched off.
+        let order = vec![Volume, Battery, Dns];
+        let mut shapes = std::collections::HashMap::new();
+        shapes.insert(Battery, Half);
+        let off = [TileKey::Wifi, TileKey::Bluetooth, TileKey::Vpn];
+        let layout = migrate_from_packed(&order, &shapes, |k| !off.contains(&k));
+
+        let keys = resolve_order(&order, |k| !off.contains(&k));
+        let packed = pack(
+            &keys.iter().map(|k| k.shape_with(&shapes)).collect::<Vec<_>>(),
+            GRID_COLUMNS,
+        );
+        assert_eq!(layout.len(), keys.len());
+        for (instance, (key, placement)) in layout.iter().zip(keys.iter().zip(packed.tiles)) {
+            assert_eq!(instance.control, *key);
+            assert_eq!(instance.placement(), placement);
+        }
+        assert_eq!(layout[0], at(Volume, Wide, 0, 0));
+        assert_eq!(layout[1], at(Battery, Half, 0, 1));
+        assert!(!layout.iter().any(|i| off.contains(&i.control)));
+        // The packer never overlaps, so validate is a no-op on its output.
+        assert_eq!(validate(&layout), layout);
+    }
+
+    #[test]
+    fn instances_round_trip_through_toml() {
+        #[derive(Deserialize, Serialize, PartialEq, Debug)]
+        struct Wrap {
+            layout: Vec<Instance>,
+        }
+        let original = Wrap {
+            layout: vec![at(Battery, Small, 0, 0), at(Battery, Wide, 0, 1)],
+        };
+        let encoded = toml::to_string(&original).unwrap();
+        assert!(encoded.contains("[[layout]]"));
+        let decoded: Wrap = toml::from_str(&encoded).unwrap();
+        assert_eq!(decoded, original);
+        // A typo in an instance is rejected, not ignored.
+        assert!(toml::from_str::<Wrap>("[[layout]]\ncontrol=\"battery\"\nshape=\"small\"\ncol=0\nrow=0\nrwo=1\n").is_err());
+    }
+}
+
 #[cfg(test)]
 mod pack_tests {
     use super::*;

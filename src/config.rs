@@ -60,19 +60,21 @@ pub struct Modules {
 pub struct Appearance {
     pub style: TileStyle,
     pub icon: PanelIcon,
-    /// The order tiles are drawn in. Empty means the default order.
+    /// The placed tiles: what is drawn, at what size, and where.
     ///
-    /// Reconciled through [`crate::tile_layout::resolve_order`]: duplicates
-    /// dropped first-wins, tiles missing from the list appended in default
-    /// order so a config predating a tile still draws it, unknown names
-    /// rejected at parse time by `deny_unknown_fields` on the enum.
+    /// `[[appearance.layout]]` entries. Empty means "not migrated yet" —
+    /// [`Config::load`] synthesises it from `order`/`shapes` (or the defaults)
+    /// through [`crate::tile_layout::migrate_from_packed`], and
+    /// [`crate::tile_layout::validate`] drops overlaps first-wins.
     #[serde(default)]
+    pub layout: Vec<crate::tile_layout::Instance>,
+    /// **Pre-0.2, migration only.** The order tiles were drawn in. Read once
+    /// to build `layout`, then dropped from the file on the next save.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub order: Vec<crate::tile_layout::TileKey>,
-    /// Per-tile shape overrides: `shapes = { battery = "half", dns = "half" }`.
-    ///
-    /// Absent tiles use their default shape. `half` is icon-only, four to a
-    /// row; the others are the shapes each tile already had.
-    #[serde(default)]
+    /// **Pre-0.2, migration only.** Per-tile shape overrides. Same lifecycle
+    /// as `order`.
+    #[serde(default, skip_serializing_if = "std::collections::HashMap::is_empty")]
     pub shapes:
         std::collections::HashMap<crate::tile_layout::TileKey, crate::tile_layout::TileShape>,
 }
@@ -204,13 +206,65 @@ impl Config {
             }
         };
 
-        match toml::from_str(&raw) {
+        let config: Self = match toml::from_str(&raw) {
             Ok(config) => config,
             Err(err) => {
                 tracing::error!("{} is invalid, using defaults: {err}", path.display());
                 Self::default()
             }
+        };
+        config.migrated()
+    }
+
+    /// Whether `[modules]` has this tile switched on.
+    ///
+    /// Pre-0.2 selection. Kept for the migration and for the non-tile toggles
+    /// that survive on the Styling tab.
+    pub fn module_enabled(&self, key: crate::tile_layout::TileKey) -> bool {
+        use crate::tile_layout::TileKey as K;
+        let m = &self.modules;
+        match key {
+            K::Connectivity => m.connectivity,
+            K::Wifi => m.wifi,
+            K::Bluetooth => m.bluetooth,
+            K::Vpn => m.vpn,
+            K::Battery => m.battery,
+            K::Dns => m.dns,
+            K::DarkMode => m.dark_mode,
+            K::Tiling => m.tiling,
+            K::GameMode => m.gamemode,
+            K::Media => m.media,
+            K::DoNotDisturb => m.do_not_disturb,
+            K::KeepAwake => m.keep_awake,
+            K::ChargeThreshold => m.charge_threshold,
+            K::KeyboardBacklight => m.keyboard_backlight,
+            K::Volume => m.volume,
+            K::Brightness => m.brightness,
+            K::Microphone => m.microphone,
         }
+    }
+
+    /// Bring a just-parsed config up to the instance-based layout.
+    ///
+    /// If `layout` is empty — a 0.1.6 file with `order`/`shapes`, or a fresh
+    /// install with neither — run the old packer once so the grid opens
+    /// exactly as it did, then forget `order`/`shapes` so the next save drops
+    /// them. A populated `layout` is only validated: hand edits can overlap.
+    pub fn migrated(mut self) -> Self {
+        use crate::tile_layout as tl;
+        if self.appearance.layout.is_empty() {
+            self.appearance.layout = tl::migrate_from_packed(&self.appearance.order, &self.appearance.shapes, |k| {
+                self.module_enabled(k)
+            });
+            if !self.appearance.order.is_empty() || !self.appearance.shapes.is_empty() {
+                tracing::info!("migrated `order`/`shapes` into {} layout instances", self.appearance.layout.len());
+            }
+        } else {
+            self.appearance.layout = tl::validate(&self.appearance.layout);
+        }
+        self.appearance.order.clear();
+        self.appearance.shapes.clear();
+        self
     }
 
     /// Write the config back, with the explanatory header intact.
@@ -331,6 +385,78 @@ mod tests {
         let encoded = toml::to_string_pretty(&chosen).unwrap();
         let decoded: Config = toml::from_str(&encoded).unwrap();
         assert_eq!(decoded.appearance.icon, PanelIcon::System);
+    }
+
+    #[test]
+    fn a_0_1_6_config_migrates_to_the_cells_the_packer_drew() {
+        // Risk #1 in the design: a config from before free placement must open
+        // looking identical. The migration runs the real packer, so this pins
+        // the result against the packer rather than against hand-written cells.
+        use crate::tile_layout::{migrate_from_packed, TileKey, TileShape};
+        let raw = r#"
+[appearance]
+order = ["volume", "battery", "dns"]
+shapes = { battery = "half" }
+
+[modules]
+wifi = false
+"#;
+        let parsed: Config = toml::from_str(raw).unwrap();
+        let before = parsed.clone();
+        let migrated = parsed.migrated();
+
+        let expected = migrate_from_packed(&before.appearance.order, &before.appearance.shapes, |k| {
+            before.module_enabled(k)
+        });
+        assert_eq!(migrated.appearance.layout, expected);
+        assert_eq!(migrated.appearance.layout[0].control, TileKey::Volume);
+        assert_eq!(migrated.appearance.layout[1].shape, TileShape::Half);
+        // A module switched off contributes no instance.
+        assert!(!migrated
+            .appearance
+            .layout
+            .iter()
+            .any(|i| i.control == TileKey::Wifi));
+        // And the legacy keys are gone, so the next save drops them.
+        assert!(migrated.appearance.order.is_empty());
+        assert!(migrated.appearance.shapes.is_empty());
+        let encoded = toml::to_string_pretty(&migrated).unwrap();
+        assert!(!encoded.contains("order"));
+        assert!(!encoded.contains("shapes"));
+        assert!(encoded.contains("[[appearance.layout]]"));
+    }
+
+    #[test]
+    fn a_fresh_config_migrates_to_the_default_grid() {
+        let migrated = Config::default().migrated();
+        assert!(!migrated.appearance.layout.is_empty());
+        assert_eq!(
+            crate::tile_layout::validate(&migrated.appearance.layout),
+            migrated.appearance.layout
+        );
+    }
+
+    #[test]
+    fn a_hand_edited_overlap_is_dropped_rather_than_drawn() {
+        let raw = r#"
+[[appearance.layout]]
+control = "battery"
+shape = "small"
+col = 0
+row = 0
+
+[[appearance.layout]]
+control = "dns"
+shape = "small"
+col = 1
+row = 0
+"#;
+        let migrated: Config = toml::from_str::<Config>(raw).unwrap().migrated();
+        assert_eq!(migrated.appearance.layout.len(), 1);
+        assert_eq!(
+            migrated.appearance.layout[0].control,
+            crate::tile_layout::TileKey::Battery
+        );
     }
 
     #[test]
