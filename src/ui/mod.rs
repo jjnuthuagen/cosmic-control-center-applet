@@ -484,6 +484,22 @@ fn icon_base<'a, Msg: 'static>(
         .into()
 }
 
+/// A symbolic icon in the destructive colour, for a panel badge.
+///
+/// libcosmic offers no way to recolour a *named* icon — the note on
+/// [`icon_base`] is about exactly that — but an `Icon` does take an svg class,
+/// and a symbolic glyph is a one-colour svg. So the colour goes on as a filter
+/// rather than by asking the icon theme for a red variant that no theme ships.
+pub fn alert_icon<'a, Msg: 'a>(name: &'a str, size: u16) -> Element<'a, Msg> {
+    icon::from_name(name)
+        .size(size)
+        .icon()
+        .class(theme::Svg::custom(|theme| cosmic::widget::svg::Style {
+            color: Some(theme.cosmic().destructive_color().into()),
+        }))
+        .into()
+}
+
 /// A ghost cell, optionally flashing because it just refused a drop.
 ///
 /// The refusal has to be seen: a tile that snaps back with no other feedback

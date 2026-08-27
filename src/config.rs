@@ -19,6 +19,9 @@ use std::path::PathBuf;
 #[serde(default, deny_unknown_fields)]
 pub struct Config {
     pub modules: Modules,
+    /// Badges beside the panel button. See [`Indicators`].
+    #[serde(default)]
+    pub indicators: Indicators,
     pub appearance: Appearance,
     pub dns: Dns,
     /// User-defined tiles that run a command. See [`crate::modules::custom`].
@@ -159,6 +162,136 @@ impl TileFinish {
             TileFinish::Frosted => "finish-frosted-detail",
             TileFinish::Outline => "finish-outline-detail",
         }
+    }
+}
+
+/// Which side of the panel button a badge sits on.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(rename_all = "lowercase")]
+pub enum BadgeSide {
+    Left,
+    #[default]
+    Right,
+}
+
+impl BadgeSide {
+    pub const ALL: [BadgeSide; 2] = [BadgeSide::Left, BadgeSide::Right];
+
+    pub fn l10n_key(self) -> &'static str {
+        match self {
+            BadgeSide::Left => "badge-side-left",
+            BadgeSide::Right => "badge-side-right",
+        }
+    }
+}
+
+/// How long a badge that announces an *event* stays up.
+///
+/// A disconnection is a moment, not a state you want shouted at forever —
+/// after a while you know, and a permanent badge is just noise. The battery
+/// badge has no equivalent, because a flat battery does not stop being true
+/// while you are not looking at it.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(rename_all = "lowercase")]
+pub enum BadgeTimeout {
+    #[serde(rename = "30s")]
+    HalfMinute,
+    #[default]
+    #[serde(rename = "1m")]
+    Minute,
+    #[serde(rename = "5m")]
+    FiveMinutes,
+    /// Until it is fixed.
+    Never,
+}
+
+impl BadgeTimeout {
+    pub const ALL: [BadgeTimeout; 4] = [
+        BadgeTimeout::HalfMinute,
+        BadgeTimeout::Minute,
+        BadgeTimeout::FiveMinutes,
+        BadgeTimeout::Never,
+    ];
+
+    /// How long the badge lasts, or `None` for "until it is fixed".
+    pub fn duration(self) -> Option<std::time::Duration> {
+        match self {
+            BadgeTimeout::HalfMinute => Some(std::time::Duration::from_secs(30)),
+            BadgeTimeout::Minute => Some(std::time::Duration::from_secs(60)),
+            BadgeTimeout::FiveMinutes => Some(std::time::Duration::from_secs(300)),
+            BadgeTimeout::Never => None,
+        }
+    }
+
+    pub fn l10n_key(self) -> &'static str {
+        match self {
+            BadgeTimeout::HalfMinute => "badge-timeout-30s",
+            BadgeTimeout::Minute => "badge-timeout-1m",
+            BadgeTimeout::FiveMinutes => "badge-timeout-5m",
+            BadgeTimeout::Never => "badge-timeout-never",
+        }
+    }
+}
+
+/// Small icons beside the panel button, for the things worth knowing without
+/// opening the popup.
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct Indicators {
+    /// A red battery when the charge is low and nothing is charging it.
+    pub battery_low: bool,
+    /// What counts as low, in percent.
+    pub battery_low_percent: u8,
+    /// A badge when Wi-Fi drops.
+    pub wifi_disconnected: bool,
+    /// How long that badge stays up. See [`BadgeTimeout`].
+    pub wifi_timeout: BadgeTimeout,
+    /// Which side of the panel button the badges sit on.
+    pub side: BadgeSide,
+}
+
+impl Default for Indicators {
+    fn default() -> Self {
+        Self {
+            // Off by default: an applet that puts a second icon on someone's
+            // panel uninvited is taking a decision that is theirs to make.
+            battery_low: false,
+            // Where COSMIC's own battery applet starts warning.
+            battery_low_percent: 20,
+            wifi_disconnected: false,
+            wifi_timeout: BadgeTimeout::default(),
+            side: BadgeSide::default(),
+        }
+    }
+}
+
+impl Indicators {
+    /// Whether the battery badge should be up.
+    ///
+    /// Charging is never low, however few percent it is at: the number is
+    /// going up, and a red badge over a charging battery is the applet crying
+    /// wolf. Pure, so the rule can be tested without a battery.
+    pub fn battery_badge(&self, shown: bool, charging: bool, percent: Option<f64>) -> bool {
+        self.battery_low
+            && shown
+            && !charging
+            && percent.is_some_and(|percent| percent <= f64::from(self.battery_low_percent))
+    }
+
+    /// Whether the Wi-Fi badge should be up, given how long ago it dropped.
+    ///
+    /// `None` means Wi-Fi is up, so there is nothing to say. A `Never` timeout
+    /// keeps the badge until it reconnects; the rest lapse, because a
+    /// disconnection is news for a while and clutter after that.
+    pub fn wifi_badge(&self, since_lost: Option<std::time::Duration>) -> bool {
+        let Some(elapsed) = since_lost else {
+            return false;
+        };
+        self.wifi_disconnected
+            && match self.wifi_timeout.duration() {
+                Some(limit) => elapsed < limit,
+                None => true,
+            }
     }
 }
 
@@ -448,6 +581,105 @@ mod tests {
         let encoded = toml::to_string_pretty(&chosen).unwrap();
         let decoded: Config = toml::from_str(&encoded).unwrap();
         assert_eq!(decoded.appearance.icon, PanelIcon::System);
+    }
+
+    #[test]
+    fn a_charging_battery_is_never_low() {
+        // However few percent it is at, the number is going up.
+        let on = Indicators {
+            battery_low: true,
+            ..Indicators::default()
+        };
+        assert!(on.battery_badge(true, false, Some(5.0)));
+        assert!(!on.battery_badge(true, true, Some(5.0)));
+        // The threshold is inclusive, and a percent above it is not low.
+        assert!(on.battery_badge(true, false, Some(20.0)));
+        assert!(!on.battery_badge(true, false, Some(21.0)));
+        // No battery, or nothing read yet, says nothing.
+        assert!(!on.battery_badge(false, false, Some(5.0)));
+        assert!(!on.battery_badge(true, false, None));
+        // And off is off.
+        assert!(!Indicators::default().battery_badge(true, false, Some(5.0)));
+    }
+
+    #[test]
+    fn the_wifi_badge_lapses_unless_it_is_set_to_never() {
+        use std::time::Duration;
+        let on = Indicators {
+            wifi_disconnected: true,
+            wifi_timeout: BadgeTimeout::Minute,
+            ..Indicators::default()
+        };
+        // Wi-Fi up: nothing to say.
+        assert!(!on.wifi_badge(None));
+        assert!(on.wifi_badge(Some(Duration::from_secs(59))));
+        assert!(!on.wifi_badge(Some(Duration::from_secs(61))));
+
+        let forever = Indicators {
+            wifi_timeout: BadgeTimeout::Never,
+            ..on.clone()
+        };
+        assert!(forever.wifi_badge(Some(Duration::from_secs(60 * 60))));
+        // But still nothing once it is back.
+        assert!(!forever.wifi_badge(None));
+
+        // Off is off, however long ago it dropped.
+        assert!(!Indicators::default().wifi_badge(Some(Duration::from_secs(1))));
+    }
+
+    #[test]
+    fn badges_are_off_until_asked_for() {
+        // Putting a second icon on someone's panel uninvited is a decision
+        // that is theirs, so a fresh config shows none.
+        let fresh = Indicators::default();
+        assert!(!fresh.battery_low);
+        assert!(!fresh.wifi_disconnected);
+        // And a config written before badges existed reads the same way.
+        let older: Config = toml::from_str("[modules]\nwifi = true\n").unwrap();
+        assert_eq!(older.indicators, Indicators::default());
+    }
+
+    #[test]
+    fn badge_timeouts_round_trip_as_the_words_a_person_would_type() {
+        #[derive(Deserialize, Serialize, PartialEq, Debug)]
+        struct Wrap {
+            wifi_timeout: BadgeTimeout,
+        }
+        for (timeout, written) in [
+            (BadgeTimeout::HalfMinute, "30s"),
+            (BadgeTimeout::Minute, "1m"),
+            (BadgeTimeout::FiveMinutes, "5m"),
+            (BadgeTimeout::Never, "never"),
+        ] {
+            let encoded = toml::to_string(&Wrap {
+                wifi_timeout: timeout,
+            })
+            .unwrap();
+            assert!(
+                encoded.contains(written),
+                "{timeout:?} wrote {encoded}, expected {written}"
+            );
+            let decoded: Wrap = toml::from_str(&encoded).unwrap();
+            assert_eq!(decoded.wifi_timeout, timeout);
+        }
+    }
+
+    #[test]
+    fn only_never_means_the_badge_has_no_deadline() {
+        assert_eq!(BadgeTimeout::Never.duration(), None);
+        let mut previous = std::time::Duration::ZERO;
+        for timeout in [
+            BadgeTimeout::HalfMinute,
+            BadgeTimeout::Minute,
+            BadgeTimeout::FiveMinutes,
+        ] {
+            let d = timeout.duration().expect("has a deadline");
+            assert!(
+                d > previous,
+                "{timeout:?} must be longer than the one before"
+            );
+            previous = d;
+        }
     }
 
     #[test]

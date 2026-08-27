@@ -77,6 +77,20 @@ Switching off a standalone tile does not empty that row inside the group:
 the group's rows follow the hardware, and the module itself keeps running as
 long as either wants it.
 
+
+## Panel badges
+
+Two things are worth knowing without opening the popup, so they can be marked
+on the panel button itself: a **low battery** (a red battery, unless it is
+charging — a charging battery is not low however few percent it is at) and
+**Wi-Fi dropping**.
+
+Both are off by default, on the Styling tab. The Wi-Fi badge takes a timeout —
+30 seconds, a minute, five, or until it reconnects — because a disconnection
+is news for a while and clutter after that. A flat battery has no equivalent:
+it does not stop being true while you are not looking at it. Badges sit on
+whichever side of the button you prefer.
+
 ## Modules
 
 | Module | Backend |

@@ -34,6 +34,11 @@ use crate::ui::{
 pub const POPUP_WIDTH: f32 = 360.0;
 const POPUP_MAX_HEIGHT: f32 = 720.0;
 
+/// Space between the panel button and a badge. Tight on purpose: the badge is
+/// a mark on this applet, and panel spacing either side of it is what says
+/// where one applet ends and the next begins.
+const BADGE_GAP: u16 = 2;
+
 /// Cap on the Bluetooth device list.
 ///
 /// Past a dozen the list is scrolling anyway and the ones that matter are at the
@@ -74,6 +79,9 @@ pub enum Page {
 #[derive(Debug, Clone)]
 pub enum Message {
     TogglePopup,
+    /// A second passed while a badge is counting down. Nothing to update — the
+    /// view reads the clock itself — but the redraw is the point.
+    Tick,
     PopupClosed(Id),
     Navigate(Page),
     OpenSettings,
@@ -162,6 +170,13 @@ pub struct App {
     custom: Vec<custom::Tile>,
     /// How many networks the Wi-Fi list is currently showing.
     wifi_rows: usize,
+    /// When Wi-Fi last dropped, for the panel badge.
+    ///
+    /// The badge announces the *moment* it went, so what has to be recorded is
+    /// when — not merely that it is currently disconnected. Cleared the moment
+    /// it comes back, so reconnecting takes the badge down rather than leaving
+    /// it to time out on news that is no longer true.
+    wifi_lost_at: Option<std::time::Instant>,
 }
 
 impl App {
@@ -301,6 +316,66 @@ impl App {
             (None, Some(profile)) => fl!(profile.l10n_key()),
             (None, None) => fl!("battery-no-battery"),
         }
+    }
+
+    /// Record a Wi-Fi connect or disconnect for the panel badge.
+    ///
+    /// Only the *edge* matters. Setting the timestamp on every update while
+    /// disconnected would keep pushing the deadline out, and a badge with a
+    /// timeout would then never expire.
+    fn note_wifi_change(&mut self, was_connected: bool) {
+        let connected = self.wifi.connected_ssid.is_some();
+        match (was_connected, connected) {
+            (true, false) => self.wifi_lost_at = Some(std::time::Instant::now()),
+            (_, true) => self.wifi_lost_at = None,
+            _ => {}
+        }
+    }
+
+    /// Whether the battery badge should be up.
+    ///
+    /// Charging is not low, however few percent it is at: the number is going
+    /// up, and a red badge over a charging battery is the applet crying wolf.
+    fn battery_is_low(&self) -> bool {
+        self.config.indicators.battery_badge(
+            self.battery.is_shown(),
+            self.battery.charging,
+            self.battery.percent,
+        )
+    }
+
+    /// Whether the Wi-Fi badge should be up.
+    ///
+    /// `None` timeout means it stays until Wi-Fi is back; otherwise it lapses,
+    /// because a disconnection is news for a while and clutter after that.
+    fn wifi_is_lost(&self) -> bool {
+        self.config
+            .indicators
+            .wifi_badge(self.wifi_lost_at.map(|since| since.elapsed()))
+    }
+
+    /// The badges to draw beside the panel button, in the order they sit.
+    fn badges(&self, size: u16) -> Vec<Element<'_, Message>> {
+        // Two thirds of the button: unmistakably a mark *on* the applet rather
+        // than a second applet that happens to sit next to it.
+        let badge_size = (size * 2 / 3).max(8);
+        let mut badges = Vec::with_capacity(2);
+
+        if self.battery_is_low() {
+            badges.push(crate::ui::alert_icon(
+                icons::battery(self.battery.percent, false),
+                badge_size,
+            ));
+        }
+        if self.wifi_is_lost() {
+            badges.push(crate::ui::alert_icon(
+                // Radio on, associated with nothing — the same glyph the tile
+                // uses for that state, rather than a second opinion about it.
+                icons::wifi(false, false, true, false, 0),
+                badge_size,
+            ));
+        }
+        badges
     }
 
     /// Every placed instance of this control, in layout order.
@@ -1348,6 +1423,7 @@ impl Application for App {
                 caffeine: caffeine::State::default(),
                 custom,
                 wifi_rows: WIFI_INITIAL_ROWS,
+                wifi_lost_at: None,
             },
             Task::none(),
         )
@@ -1424,6 +1500,7 @@ impl Application for App {
                     popup
                 }
             }
+            Message::Tick => Task::none(),
             Message::PopupClosed(id) => {
                 if self.popup == Some(id) {
                     self.popup = None;
@@ -1588,7 +1665,9 @@ impl Application for App {
             },
 
             Message::Wifi(event) => {
+                let was_connected = self.wifi.connected_ssid.is_some();
                 self.wifi.update(event);
+                self.note_wifi_change(was_connected);
                 // The connect page is defined by there being a network awaiting
                 // a password. Once that clears — joined, or failed in a way that
                 // a retype cannot fix — the page has no subject and its header
@@ -1723,6 +1802,17 @@ impl Application for App {
             subscriptions.push(self.vpn.subscription().map(Message::Vpn));
         }
 
+        // A badge with a deadline needs something to redraw the panel when the
+        // deadline passes: nothing else is going to arrive once Wi-Fi has
+        // settled into being disconnected, and a badge that outstays its
+        // timeout until the next unrelated event is worse than no timeout.
+        // Only while one is actually counting down.
+        if self.wifi_is_lost() && self.config.indicators.wifi_timeout.duration().is_some() {
+            subscriptions.push(
+                cosmic::iced::time::every(std::time::Duration::from_secs(1)).map(|_| Message::Tick),
+            );
+        }
+
         Subscription::batch(subscriptions)
     }
 
@@ -1737,9 +1827,34 @@ impl Application for App {
         // Right-click opens Settings, matching how panel items behave
         // elsewhere. Left-click stays the popup, so the common action is
         // unchanged.
-        mouse_area(button)
+        let button: Element<'_, Message> = mouse_area(button)
             .on_right_press(Message::OpenSettings)
-            .into()
+            .into();
+
+        let badges = self.badges(size);
+        if badges.is_empty() {
+            return button;
+        }
+
+        // The badges are inside the same row as the button and carry no press
+        // of their own: pressing anywhere on the applet should open the popup,
+        // which is where the thing the badge is warning about gets dealt with.
+        let mut row = row::with_capacity(badges.len() + 1)
+            .align_y(Alignment::Center)
+            .spacing(BADGE_GAP);
+        let on_left = self.config.indicators.side == crate::config::BadgeSide::Left;
+        if on_left {
+            for badge in badges {
+                row = row.push(badge);
+            }
+            row = row.push(button);
+        } else {
+            row = row.push(button);
+            for badge in badges {
+                row = row.push(badge);
+            }
+        }
+        row.into()
     }
 
     fn view_window(&self, _id: Id) -> Element<'_, Message> {

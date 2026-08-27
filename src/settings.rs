@@ -19,7 +19,7 @@ use cosmic::widget::{
 use cosmic::ApplicationExt;
 use cosmic::{Application, Element};
 
-use crate::config::{Config, PanelIcon, TileFinish, TileStyle};
+use crate::config::{BadgeSide, BadgeTimeout, Config, PanelIcon, TileFinish, TileStyle};
 use crate::fl;
 use crate::tile_layout::{TileKey, TileShape};
 use crate::ui::{
@@ -306,6 +306,10 @@ pub enum Message {
     OpenUrl(String),
     SetStyle(TileStyle),
     SetFinish(TileFinish),
+    SetBatteryIndicator(bool),
+    SetWifiIndicator(bool),
+    SetWifiTimeout(BadgeTimeout),
+    SetBadgeSide(BadgeSide),
     SetIcon(PanelIcon),
     CustomInput(String),
     ApplyCustom,
@@ -671,6 +675,66 @@ impl Settings {
         section.into()
     }
 
+    /// Badges beside the panel button.
+    fn indicators_section(&self) -> Element<'_, Message> {
+        let spacing = self.spacing();
+        let theme_spacing = Spacing::from_theme(self.core.system_theme());
+        let indicators = &self.config.indicators;
+        let mut section = column::with_capacity(10)
+            .spacing(spacing)
+            .push(text::title4(fl!("settings-indicators")))
+            .push(text::caption(fl!("settings-indicators-detail")));
+
+        section = section.push(crate::ui::toggle_row(
+            "battery-low-symbolic",
+            fl!("indicator-battery"),
+            Some(fl!(
+                "indicator-battery-detail",
+                percent = i64::from(indicators.battery_low_percent)
+            )),
+            indicators.battery_low,
+            Some(Message::SetBatteryIndicator(!indicators.battery_low)),
+            theme_spacing,
+        ));
+
+        section = section.push(crate::ui::toggle_row(
+            "network-wireless-offline-symbolic",
+            fl!("indicator-wifi"),
+            Some(fl!("indicator-wifi-detail")),
+            indicators.wifi_disconnected,
+            Some(Message::SetWifiIndicator(!indicators.wifi_disconnected)),
+            theme_spacing,
+        ));
+
+        // Only worth asking how long it stays once something can put it up.
+        if indicators.wifi_disconnected {
+            section = section.push(text::caption(fl!("settings-indicator-timeout")));
+            for timeout in BadgeTimeout::ALL {
+                section = section.push(radio(
+                    text::body(crate::i18n::lookup(timeout.l10n_key(), None)),
+                    timeout,
+                    Some(indicators.wifi_timeout),
+                    Message::SetWifiTimeout,
+                ));
+            }
+        }
+
+        // And only worth asking which side once something can appear there.
+        if indicators.battery_low || indicators.wifi_disconnected {
+            section = section.push(text::caption(fl!("settings-indicator-side")));
+            for side in BadgeSide::ALL {
+                section = section.push(radio(
+                    text::body(crate::i18n::lookup(side.l10n_key(), None)),
+                    side,
+                    Some(indicators.side),
+                    Message::SetBadgeSide,
+                ));
+            }
+        }
+
+        section.into()
+    }
+
     /// The controls that are not grid tiles, as plain switches.
     ///
     /// Derived selection replaced the `[modules]` switch list for everything
@@ -1009,6 +1073,22 @@ impl Application for Settings {
                 self.config.appearance.finish = finish;
                 self.save();
             }
+            Message::SetBatteryIndicator(on) => {
+                self.config.indicators.battery_low = on;
+                self.save();
+            }
+            Message::SetWifiIndicator(on) => {
+                self.config.indicators.wifi_disconnected = on;
+                self.save();
+            }
+            Message::SetWifiTimeout(timeout) => {
+                self.config.indicators.wifi_timeout = timeout;
+                self.save();
+            }
+            Message::SetBadgeSide(side) => {
+                self.config.indicators.side = side;
+                self.save();
+            }
             Message::SetIcon(icon) => {
                 if !matches!(icon, PanelIcon::Custom(_)) {
                     self.custom_input.clear();
@@ -1051,11 +1131,13 @@ impl Application for Settings {
         let spacing = self.spacing();
 
         let page: Element<'_, Message> = match self.tabs.active_data::<Tab>() {
-            Some(Tab::Styling) => column::with_capacity(5)
+            Some(Tab::Styling) => column::with_capacity(7)
                 .spacing(spacing * 2)
                 .push(self.style_section())
                 .push(divider::horizontal::default())
                 .push(self.icon_section())
+                .push(divider::horizontal::default())
+                .push(self.indicators_section())
                 .push(divider::horizontal::default())
                 .push(self.extras_section())
                 .into(),

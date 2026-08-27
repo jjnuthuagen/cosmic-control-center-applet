@@ -35,6 +35,27 @@ keep_awake         = true
 gamemode           = true   # hides itself unless Feral GameMode is installed
 charge_threshold   = true   # hides itself unless the hardware supports it
 
+[indicators]
+# Small badges beside the panel button, for things worth knowing without
+# opening the popup. Both are off by default: a second icon on your panel is
+# your decision, not this applet's.
+#
+# battery_low         a red battery when the charge is at or under
+#                     battery_low_percent and nothing is charging it. A
+#                     charging battery is never low however few percent it is
+#                     at — the number is going up.
+# wifi_disconnected   a red mark when Wi-Fi drops.
+# wifi_timeout        how long that mark stays: "30s", "1m", "5m", or "never"
+#                     to leave it up until Wi-Fi is back. A disconnection is
+#                     news for a while and clutter after that; a flat battery
+#                     does not stop being true while you are not looking.
+# side                "left" or "right" of the panel button.
+battery_low = false
+battery_low_percent = 20
+wifi_disconnected = false
+wifi_timeout = "1m"
+side = "right"
+
 [appearance]
 # How strongly a tile shows that its control is on:
 #   "high"   - the whole tile fills with the accent colour

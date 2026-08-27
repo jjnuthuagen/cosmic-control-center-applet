@@ -118,6 +118,11 @@ seen once. If you only have ten minutes, do this section.
 - [ ] Styling -> Tile surface: "outline" leaves the popup as one unbroken sheet of frosted glass with only faint tile edges; "frosted" shows the blur through each tile while keeping it denser than the popup; "solid" fills each tile.
 - [ ] An outlined tile still lights up under the pointer, so it does not read as a label.
 - [ ] With the desktop's frosted styling off, all three finishes are legible — none leaves unreadable text on a transparent tile.
+- [ ] Styling -> Panel badges: with Low battery on and the machine under the threshold on battery, a red battery sits beside the panel button; plugging in takes it away.
+- [ ] With Wi-Fi disconnected on, dropping Wi-Fi puts a red mark on the panel; it goes when the chosen timeout passes, or stays if that is "until it reconnects".
+- [ ] Reconnecting takes the Wi-Fi badge down immediately, whatever the timeout.
+- [ ] Switching sides moves the badges to the other side of the button.
+- [ ] With both badges off, the applet is exactly one icon wide again.
 - [ ] Under every tile style, the icons and text sit in the same place — switching High → Medium → Low moves nothing.
 - [ ] Widening the Settings window widens the grid; nothing is clipped on the right.
 - [ ] Settings → Tiles: a control removed from the grid appears in the list underneath; tapping it there adds it back at the first free space.
