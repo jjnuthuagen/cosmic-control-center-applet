@@ -38,7 +38,7 @@ struct Report {
 /// drawn; being placed does. Reporting from the old table said "disabled in
 /// config.toml" about controls the user had simply not placed.
 fn wanted(config: &Config, key: TileKey) -> bool {
-    let placed = |k: TileKey| config.appearance.layout.iter().any(|i| i.control == k);
+    let placed = |k: TileKey| config.appearance.layout.iter().any(|i| i.control.is(k));
     let via_group = matches!(key, TileKey::Wifi | TileKey::Bluetooth | TileKey::Vpn)
         && placed(TileKey::Connectivity);
     placed(key) || via_group

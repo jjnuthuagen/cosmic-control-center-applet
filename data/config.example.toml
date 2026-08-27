@@ -151,13 +151,13 @@ custom_providers = [
 #
 # A fresh install starts with a strip of icon-only launchers — Settings,
 # Tweaks, Terminal, System Monitor, Claude, Log out, Restart, Power off — and
-# only those whose program is actually installed. They are ordinary custom
+# only those whose program is actually installed (for a Flatpak, only if that
+# app id is installed, not merely Flatpak itself). They are ordinary custom
 # tiles from then on: edit, reshape or delete them like any other, and they
 # are never added back once you have a config file.
 #
-# Note that Log out, Restart and Power off act on a single press, with no
-# confirmation, exactly like every other tile. Delete them, or point them at
-# something that asks first, if that is not what you want.
+# Log out, Restart and Power off ship with `confirm = true`, so they ask on a
+# page of their own before doing anything.
 #
 # Copy the block below, uncomment it, and change the values. Add as many
 # [[custom]] blocks as you like.
@@ -171,6 +171,10 @@ custom_providers = [
 #                       name is not in your theme it falls back rather than
 #                       drawing nothing.
 #   detail    optional  A second line under the name. Defaults to the name.
+#   confirm   optional  true asks before running it, on a page of its own.
+#                       For the commands you cannot take back — logging out,
+#                       rebooting, powering off. Defaults to false, so a
+#                       launcher that just opens a window still opens it.
 #   shape     optional  "half" draws it icon-only, four to a row, with the
 #                       name on hover — usually what you want for a launcher.
 #                       Defaults to "small", the plain square. "wide" and
@@ -186,6 +190,11 @@ custom_providers = [
 #   command = ["sh", "-c", "grim - | wl-copy"]
 #
 # A filled-out example:
+#
+# Custom tiles sit on the grid like any other control, as
+# `control = { custom = 0 }` in [[appearance.layout]] — the number is the
+# tile's position in the [[custom]] list below. Arrange them in Settings with
+# everything else; they are placed for you the first time they appear.
 #
 # [[custom]]
 # name = "Screenshot"

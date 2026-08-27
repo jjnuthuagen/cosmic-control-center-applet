@@ -46,6 +46,14 @@ pub struct Tile {
     /// drawn.
     #[serde(default = "default_shape")]
     pub shape: crate::tile_layout::TileShape,
+    /// Ask before running it.
+    ///
+    /// For the commands you cannot take back: logging out, rebooting, powering
+    /// off. A tile is a small target in a grid people click around in, and
+    /// every other tile in that grid is harmless, so the one that ends your
+    /// session should not act on the same flick of the wrist.
+    #[serde(default)]
+    pub confirm: bool,
     /// Whether the tile is drawn.
     ///
     /// Defaults to true, so a config written before this field existed keeps
@@ -70,6 +78,12 @@ fn default_icon() -> String {
 }
 
 impl Tile {
+    /// Whether this entry should be drawn at all: switched on, and able to
+    /// run.
+    pub fn is_usable(&self) -> bool {
+        self.enabled && self.is_runnable()
+    }
+
     /// Whether this entry can actually be run.
     ///
     /// An empty `command` would otherwise produce a tile that looks identical
@@ -126,7 +140,14 @@ pub fn default_launchers() -> Vec<Tile> {
         command: command.iter().map(|s| s.to_string()).collect(),
         detail: detail.map(str::to_string),
         shape: TileShape::Half,
+        confirm: false,
         enabled: true,
+    };
+
+    // The ones that end the session ask first.
+    let ending = |name: &str, icon: &str, command: &[&str], detail: &str| Tile {
+        confirm: true,
+        ..tile(name, icon, command, Some(detail))
     };
 
     let mut tiles = vec![
@@ -165,17 +186,17 @@ pub fn default_launchers() -> Vec<Tile> {
         ),
         // The two that end the machine. They run on a single press, like
         // every other tile — see the note in the example config.
-        tile(
+        ending(
             "Restart",
             "system-reboot-symbolic",
             &["systemctl", "reboot"],
-            Some("Reboots now"),
+            "Reboots now",
         ),
-        tile(
+        ending(
             "Power off",
             "system-shutdown-symbolic",
             &["systemctl", "poweroff"],
-            Some("Shuts down now"),
+            "Shuts down now",
         ),
     ];
 
@@ -183,11 +204,11 @@ pub fn default_launchers() -> Vec<Tile> {
     // argv array with no shell to expand `$USER` for us. Without a name there
     // is nothing sensible to run, so the tile is simply not offered.
     if let Some(user) = std::env::var_os("USER").and_then(|u| u.into_string().ok()) {
-        tiles.push(tile(
+        tiles.push(ending(
             "Log out",
             "system-log-out-symbolic",
             &["loginctl", "terminate-user", &user],
-            Some("Ends the session"),
+            "Ends the session",
         ));
     }
 
@@ -201,10 +222,52 @@ pub fn default_launchers() -> Vec<Tile> {
 /// deleting it from their config would be worse than a tile that reports a
 /// failure when pressed.
 pub fn installed(tiles: Vec<Tile>) -> Vec<Tile> {
-    tiles
-        .into_iter()
-        .filter(|tile| tile.command.first().is_some_and(|p| which(p).is_some()))
-        .collect()
+    tiles.into_iter().filter(is_present).collect()
+}
+
+/// Whether the thing a shipped launcher launches is actually here.
+///
+/// `which` on the program is not enough for `flatpak run <app>`: every machine
+/// with Flatpak has `flatpak`, so the tile would be offered on all of them and
+/// do nothing on most. The app id is the thing to look for.
+fn is_present(tile: &Tile) -> bool {
+    let Some(program) = tile.command.first() else {
+        return false;
+    };
+    if which(program).is_none() {
+        return false;
+    }
+    if program.ends_with("flatpak") && tile.command.get(1).is_some_and(|arg| arg == "run") {
+        let Some(app_id) = tile.command.get(2) else {
+            return false;
+        };
+        return flatpak_installed(app_id);
+    }
+    true
+}
+
+/// Whether a Flatpak app id is installed, per `flatpak info`.
+///
+/// Asks Flatpak rather than looking for a directory: user and system installs
+/// live in different places, and which one an app is in is not this applet's
+/// business.
+fn flatpak_installed(app_id: &str) -> bool {
+    std::process::Command::new("flatpak")
+        .args(["info", app_id])
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .status()
+        .is_ok_and(|status| status.success())
+}
+
+/// Warn about entries that cannot run.
+///
+/// Reported once at load rather than at draw, so a broken entry is a line in
+/// the log instead of a tile that quietly does nothing forever.
+pub fn warn_unusable(tiles: &[Tile]) {
+    for tile in tiles.iter().filter(|tile| !tile.is_runnable()) {
+        tracing::warn!("custom tile `{}` has an empty command", tile.name);
+    }
 }
 
 /// The tiles that should be drawn: switched on, and able to run.
@@ -282,6 +345,7 @@ mod tests {
             command: command.into_iter().map(str::to_string).collect(),
             detail: None,
             shape: default_shape(),
+            confirm: false,
             enabled: true,
         }
     }
@@ -307,6 +371,67 @@ mod tests {
             );
             assert!(tile.is_runnable(), "{} has no command", tile.name);
         }
+    }
+
+    #[test]
+    fn a_flatpak_launcher_needs_the_app_not_just_flatpak() {
+        // Every machine with Flatpak has `flatpak`, so checking the program
+        // alone would offer the tile everywhere and have it do nothing on most
+        // of them.
+        let absent_app = tile("Tweaks", vec!["flatpak", "run", "org.example.NotInstalled"]);
+        if which("flatpak").is_some() {
+            assert!(
+                !is_present(&absent_app),
+                "an absent flatpak app was offered"
+            );
+        }
+
+        // A plain program is still judged on the program alone.
+        assert!(is_present(&tile("Shell", vec!["sh"])));
+        assert!(!is_present(&tile("Nope", vec!["definitely-not-real-xyz"])));
+    }
+
+    #[test]
+    fn everything_that_ends_the_session_asks_first() {
+        // These go out to every install by default. A tile is a small target
+        // in a grid people click around in, and the rest of that grid is
+        // harmless.
+        for name in ["Log out", "Restart", "Power off"] {
+            let Some(tile) = default_launchers().into_iter().find(|t| t.name == name) else {
+                // Log out is not offered when USER is unset; the others always
+                // are.
+                assert_eq!(name, "Log out");
+                continue;
+            };
+            assert!(tile.confirm, "{name} runs without asking");
+        }
+
+        // And nothing else nags: a launcher that just opens a window should
+        // open it.
+        for tile in default_launchers().iter().filter(|t| !t.confirm) {
+            assert!(
+                !["Log out", "Restart", "Power off"].contains(&tile.name.as_str()),
+                "{} should have asked",
+                tile.name
+            );
+        }
+    }
+
+    #[test]
+    fn a_tile_runs_without_asking_unless_it_says_otherwise() {
+        // Confirmation is opt-in: a config written before it existed keeps
+        // behaving as it did.
+        let older: Tile = toml::from_str("name = \"X\"\ncommand = [\"true\"]\n").unwrap();
+        assert!(!older.confirm);
+
+        let asks: Tile =
+            toml::from_str("name = \"X\"\ncommand = [\"true\"]\nconfirm = true\n").unwrap();
+        assert!(asks.confirm);
+        // Round-trips, or the Settings window would drop it on save.
+        assert_eq!(
+            toml::from_str::<Tile>(&toml::to_string(&asks).unwrap()).unwrap(),
+            asks
+        );
     }
 
     #[test]

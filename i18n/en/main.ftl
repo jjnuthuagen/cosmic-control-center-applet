@@ -201,3 +201,6 @@ badge-timeout-5m = 5 minutes
 badge-timeout-never = Until it reconnects
 badge-side-left = Left
 badge-side-right = Right
+
+confirm-detail = { $name } cannot be undone. Anything you have not saved will be lost.
+confirm-go = Yes, { $name }

@@ -497,10 +497,57 @@ pub fn pack(shapes: &[TileShape], columns: u16) -> Pack {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct Instance {
-    pub control: TileKey,
+    pub control: Control,
     pub shape: TileShape,
     pub col: u16,
     pub row: u16,
+}
+
+/// What a placed tile *is*: one of the built-in controls, or one of the
+/// user's own.
+///
+/// Custom tiles have no [`TileKey`] — their names are user-set strings that
+/// can change or clash — so they are addressed by their index in the
+/// `[[custom]]` array, the same trade the rest of the applet makes for them.
+/// An index that no longer exists is dropped on load rather than drawn as a
+/// blank tile; see [`crate::config::Config::migrated`].
+///
+/// In `config.toml` a built-in is its own name and a custom tile is a table,
+/// so the common case stays readable:
+///
+/// ```toml
+/// control = "battery"
+/// control = { custom = 0 }
+/// ```
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Deserialize, Serialize)]
+#[serde(untagged)]
+pub enum Control {
+    Builtin(TileKey),
+    Custom { custom: usize },
+}
+
+impl Control {
+    pub fn custom(index: usize) -> Self {
+        Control::Custom { custom: index }
+    }
+
+    /// The built-in key, if this is one.
+    pub fn key(self) -> Option<TileKey> {
+        match self {
+            Control::Builtin(key) => Some(key),
+            Control::Custom { .. } => None,
+        }
+    }
+
+    pub fn is(self, key: TileKey) -> bool {
+        self.key() == Some(key)
+    }
+}
+
+impl From<TileKey> for Control {
+    fn from(key: TileKey) -> Self {
+        Control::Builtin(key)
+    }
 }
 
 /// Where something sits on the grid, without saying what it is.
@@ -543,9 +590,9 @@ impl Slot {
 }
 
 impl Instance {
-    pub fn new(control: TileKey, shape: TileShape, col: u16, row: u16) -> Self {
+    pub fn new(control: impl Into<Control>, shape: TileShape, col: u16, row: u16) -> Self {
         Self {
-            control,
+            control: control.into(),
             shape,
             col,
             row,
@@ -635,11 +682,15 @@ pub fn validate(layout: &[Instance]) -> Vec<Instance> {
 /// be an instance — they keep a plain switch instead. Both the migration and
 /// the Settings palette ask here, so the two can never disagree about what is
 /// placeable.
-pub fn is_placeable(key: TileKey) -> bool {
-    !matches!(
-        key,
-        TileKey::GameMode | TileKey::Media | TileKey::ChargeThreshold
-    )
+pub fn is_placeable(control: impl Into<Control>) -> bool {
+    match control.into() {
+        // A user's own tile is a tile by definition.
+        Control::Custom { .. } => true,
+        Control::Builtin(key) => !matches!(
+            key,
+            TileKey::GameMode | TileKey::Media | TileKey::ChargeThreshold
+        ),
+    }
 }
 
 /// Build a layout from the pre-0.2 `order` + `shapes` model.
@@ -832,12 +883,14 @@ mod instance_tests {
         );
         assert_eq!(layout.len(), keys.len());
         for (instance, (key, placement)) in layout.iter().zip(keys.iter().zip(packed.tiles)) {
-            assert_eq!(instance.control, *key);
+            assert!(instance.control.is(*key));
             assert_eq!(instance.placement(), placement);
         }
         assert_eq!(layout[0], at(Volume, Wide, 0, 0));
         assert_eq!(layout[1], at(Battery, Half, 0, 1));
-        assert!(!layout.iter().any(|i| off.contains(&i.control)));
+        assert!(!layout
+            .iter()
+            .any(|i| i.control.key().is_some_and(|k| off.contains(&k))));
         // The packer never overlaps, so validate is a no-op on its output.
         assert_eq!(validate(&layout), layout);
     }
@@ -933,7 +986,7 @@ mod instance_tests {
         for key in [TileKey::Media, TileKey::GameMode, TileKey::ChargeThreshold] {
             assert!(!is_placeable(key));
             assert!(
-                !layout.iter().any(|i| i.control == key),
+                !layout.iter().any(|i| i.control.is(key)),
                 "{key:?} was placed on the grid"
             );
         }

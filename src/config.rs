@@ -458,6 +458,41 @@ impl Config {
         } else {
             self.appearance.layout = tl::validate(&self.appearance.layout);
         }
+
+        // A custom tile is addressed by its index in `[[custom]]`, and that
+        // array can be edited by hand. An index it no longer has would draw
+        // nothing at all, so the instance goes rather than leaving a hole
+        // nobody can fill.
+        let defined = self.custom.len();
+        self.appearance.layout.retain(|instance| {
+            let live = match instance.control {
+                tl::Control::Custom { custom } => custom < defined,
+                tl::Control::Builtin(_) => true,
+            };
+            if !live {
+                tracing::warn!("dropping {instance:?}: no such custom tile");
+            }
+            live
+        });
+
+        // Custom tiles used to be appended after the grid rather than placed
+        // on it. Anything defined but not placed goes on now, at the first
+        // free space, so upgrading puts them where they already appeared
+        // instead of losing them.
+        for index in 0..defined {
+            let control = tl::Control::custom(index);
+            if !self.custom[index].is_usable()
+                || self.appearance.layout.iter().any(|i| i.control == control)
+            {
+                continue;
+            }
+            let shape = self.custom[index].shape;
+            let (col, row) = tl::first_free(&self.appearance.layout, shape);
+            self.appearance
+                .layout
+                .push(tl::Instance::new(control, shape, col, row));
+        }
+
         self.appearance.order.clear();
         self.appearance.shapes.clear();
         self
@@ -705,14 +740,14 @@ wifi = false
                 before.module_enabled(k)
             });
         assert_eq!(migrated.appearance.layout, expected);
-        assert_eq!(migrated.appearance.layout[0].control, TileKey::Volume);
+        assert!(migrated.appearance.layout[0].control.is(TileKey::Volume));
         assert_eq!(migrated.appearance.layout[1].shape, TileShape::Half);
         // A module switched off contributes no instance.
         assert!(!migrated
             .appearance
             .layout
             .iter()
-            .any(|i| i.control == TileKey::Wifi));
+            .any(|i| i.control.is(TileKey::Wifi)));
         // And the legacy keys are gone, so the next save drops them.
         assert!(migrated.appearance.order.is_empty());
         assert!(migrated.appearance.shapes.is_empty());
@@ -720,6 +755,77 @@ wifi = false
         assert!(!encoded.contains("order"));
         assert!(!encoded.contains("shapes"));
         assert!(encoded.contains("[[appearance.layout]]"));
+    }
+
+    #[test]
+    fn custom_tiles_are_placed_on_the_grid_rather_than_appended_after_it() {
+        // They used to be drawn after the grid and were not part of the
+        // layout, so upgrading has to put them on it — otherwise a launcher
+        // someone had simply disappears.
+        let raw = r#"
+[[custom]]
+name = "Terminal"
+command = ["true"]
+shape = "half"
+
+[[custom]]
+name = "Off"
+command = ["true"]
+enabled = false
+"#;
+        let migrated: Config = toml::from_str::<Config>(raw).unwrap().migrated();
+        let placed: Vec<_> = migrated
+            .appearance
+            .layout
+            .iter()
+            .filter(|i| matches!(i.control, crate::tile_layout::Control::Custom { .. }))
+            .collect();
+        assert_eq!(placed.len(), 1, "only the usable one is placed");
+        assert_eq!(placed[0].control, crate::tile_layout::Control::custom(0));
+        // At the shape its own entry asks for.
+        assert_eq!(placed[0].shape, crate::tile_layout::TileShape::Half);
+        // Placing it twice on a second load would stack duplicates.
+        let again = migrated.clone().migrated();
+        assert_eq!(again.appearance.layout, migrated.appearance.layout);
+    }
+
+    #[test]
+    fn a_custom_instance_with_no_entry_behind_it_is_dropped() {
+        // `[[custom]]` is hand-editable, so an index can outlive its tile. It
+        // would draw nothing at all, leaving a hole nobody could fill.
+        let raw = r#"
+[[appearance.layout]]
+control = { custom = 7 }
+shape = "half"
+col = 0
+row = 0
+"#;
+        let migrated: Config = toml::from_str::<Config>(raw).unwrap().migrated();
+        assert!(!migrated
+            .appearance
+            .layout
+            .iter()
+            .any(|i| matches!(i.control, crate::tile_layout::Control::Custom { .. })));
+    }
+
+    #[test]
+    fn a_control_reads_as_a_name_and_a_custom_tile_as_a_table() {
+        // The common case has to stay readable by hand.
+        use crate::tile_layout::{Control, Instance, TileKey, TileShape};
+        #[derive(Deserialize, Serialize, PartialEq, Debug)]
+        struct Wrap {
+            layout: Vec<Instance>,
+        }
+        let wrap = Wrap {
+            layout: vec![
+                Instance::new(TileKey::Battery, TileShape::Small, 0, 0),
+                Instance::new(Control::custom(2), TileShape::Half, 2, 0),
+            ],
+        };
+        let encoded = toml::to_string(&wrap).unwrap();
+        assert!(encoded.contains(r#"control = "battery""#), "{encoded}");
+        assert!(encoded.contains("custom = 2"), "{encoded}");
+        assert_eq!(toml::from_str::<Wrap>(&encoded).unwrap(), wrap);
     }
 
     #[test]
@@ -749,10 +855,9 @@ row = 0
 "#;
         let migrated: Config = toml::from_str::<Config>(raw).unwrap().migrated();
         assert_eq!(migrated.appearance.layout.len(), 1);
-        assert_eq!(
-            migrated.appearance.layout[0].control,
-            crate::tile_layout::TileKey::Battery
-        );
+        assert!(migrated.appearance.layout[0]
+            .control
+            .is(crate::tile_layout::TileKey::Battery));
     }
 
     #[test]

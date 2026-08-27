@@ -74,6 +74,9 @@ pub enum Page {
     Battery,
     Dns,
     Vpn,
+    /// "Are you sure?" for a custom tile that asked to be confirmed. Carries
+    /// the tile's index in `[[custom]]`.
+    ConfirmCustom(usize),
 }
 
 #[derive(Debug, Clone)]
@@ -104,6 +107,8 @@ pub enum Message {
     CycleKeyboard,
     ToggleChargeThreshold,
     RunCustom(usize),
+    /// The confirmation page said yes.
+    ConfirmedCustom(usize),
 
     SetMicrophone(f64),
     ToggleMicrophoneMute,
@@ -388,7 +393,7 @@ impl App {
             .appearance
             .layout
             .iter()
-            .filter(move |i| i.control == key)
+            .filter(move |i| i.control.is(key))
     }
 
     /// Whether this control is in the layout at all.
@@ -484,11 +489,35 @@ impl App {
     /// left as gaps rather than closed up.
     fn control_tile(
         &self,
-        control: TileKey,
+        control: crate::tile_layout::Control,
         shape: TileShape,
         spacing: Spacing,
     ) -> Option<Element<'_, Message>> {
-        match control {
+        use crate::tile_layout::Control;
+
+        // A user's own tile: addressed by index, so an index the `[[custom]]`
+        // array no longer has draws nothing rather than a blank tile.
+        let key = match control {
+            Control::Builtin(key) => key,
+            Control::Custom { custom } => {
+                let entry = self.custom.get(custom).filter(|e| e.is_usable())?;
+                return Some(
+                    Tile::new(
+                        icons::resolve_owned(&entry.icon),
+                        entry.name.clone(),
+                        entry.detail.clone().unwrap_or_else(|| entry.name.clone()),
+                    )
+                    .style(self.config.appearance.style)
+                    .finish(self.config.appearance.finish)
+                    .on_press(Message::RunCustom(custom))
+                    .compact(shape == TileShape::Half)
+                    .wide(shape == TileShape::Wide)
+                    .view(spacing),
+                );
+            }
+        };
+
+        match key {
             TileKey::Connectivity if self.show_connectivity() => {
                 Some(self.connectivity_tile(spacing))
             }
@@ -753,28 +782,6 @@ impl App {
         let mut tiles: Vec<(Element<'_, Message>, crate::tile_layout::Slot)> =
             Vec::with_capacity(16);
 
-        // User-defined tiles go last, after everything built in, so adding one
-        // never reshuffles the controls someone is used to.
-        let mut custom_tiles: Vec<(Element<'_, Message>, TileShape)> =
-            Vec::with_capacity(self.custom.len());
-        for (index, entry) in self.custom.iter().enumerate() {
-            custom_tiles.push((
-                Tile::new(
-                    icons::resolve_owned(&entry.icon),
-                    entry.name.clone(),
-                    entry.detail.clone().unwrap_or_else(|| entry.name.clone()),
-                )
-                .style(self.config.appearance.style)
-                .finish(self.config.appearance.finish)
-                .on_press(Message::RunCustom(index))
-                // Half is the icon-only form: the glyph is the whole tile and
-                // the name moves into the tooltip.
-                .compact(entry.shape == TileShape::Half)
-                .view(spacing),
-                entry.shape,
-            ));
-        }
-
         // Sliders are packed into the same grid rather than laid out as
         // separate full-width rows underneath.
         // One element per instance, built at that instance's own shape, so a
@@ -785,21 +792,6 @@ impl App {
                 tiles.push((element, instance.slot()));
             }
         }
-        // Custom tiles have no TileKey, so they are not yet part of the
-        // layout: they keep their index-addressed model and land in the first
-        // free cells after everything placed. They join the palette proper
-        // later in this series.
-        for (element, shape) in custom_tiles {
-            let placed: Vec<crate::tile_layout::Instance> = tiles
-                .iter()
-                .map(|(_, s)| {
-                    crate::tile_layout::Instance::new(TileKey::Media, s.shape, s.col, s.row)
-                })
-                .collect();
-            let (col, row) = crate::tile_layout::first_free(&placed, shape);
-            tiles.push((element, crate::tile_layout::Slot::new(shape, col, row)));
-        }
-
         let mut content = column::with_capacity(4).spacing(spacing.section);
         if !tiles.is_empty() {
             content = content.push(tile_grid(tiles, crate::ui::Ghosts::Empty, spacing));
@@ -1226,6 +1218,42 @@ impl App {
 
     // -- DNS ------------------------------------------------------------------
 
+    /// "Are you sure?" for a tile that cannot be taken back.
+    ///
+    /// A page rather than a second press on the tile: a grid of small targets
+    /// is exactly where a double-tap happens by accident, and the whole point
+    /// is to make the second step a different gesture in a different place.
+    fn confirm_custom_page(&self, index: usize) -> Element<'_, Message> {
+        let spacing = self.spacing();
+        let Some(entry) = self.custom.get(index).filter(|e| e.is_usable()) else {
+            // The tile went away underneath us — edited out of the config
+            // while the page was open. Nothing to confirm.
+            return self.root_page();
+        };
+
+        column::with_capacity(4)
+            .spacing(spacing.section)
+            .push(page_header(
+                entry.name.clone(),
+                Message::Navigate(Page::Root),
+                spacing,
+            ))
+            .push(text::body(fl!("confirm-detail", name = entry.name.clone())))
+            .push(
+                cosmic::widget::button::text(fl!("confirm-go", name = entry.name.clone()))
+                    .class(cosmic::theme::Button::Destructive)
+                    .width(Length::Fill)
+                    .on_press(Message::ConfirmedCustom(index)),
+            )
+            .push(
+                cosmic::widget::button::text(fl!("cancel"))
+                    .class(cosmic::theme::Button::Standard)
+                    .width(Length::Fill)
+                    .on_press(Message::Navigate(Page::Root)),
+            )
+            .into()
+    }
+
     fn dns_page(&self) -> Element<'_, Message> {
         let spacing = self.spacing();
         let mut content = column::with_capacity(10)
@@ -1400,7 +1428,8 @@ impl Application for App {
     fn init(core: Core, _flags: ()) -> (Self, Task<Message>) {
         let config = Config::load();
         let dns = dns::State::new(&config.dns.custom_providers);
-        let custom = custom::usable(&config.custom);
+        custom::warn_unusable(&config.custom);
+        let custom = config.custom.clone();
         (
             Self {
                 core,
@@ -1463,7 +1492,12 @@ impl Application for App {
                     // the provider list actually changed.
                     self.dns = dns::State::new(&config.dns.custom_providers);
                 }
-                self.custom = custom::usable(&config.custom);
+                // The *whole* list, so an index means the same thing here as
+                // it does in `[[custom]]` and in a layout instance. Filtering
+                // to the usable ones would shift every index after a broken
+                // or switched-off entry.
+                custom::warn_unusable(&config.custom);
+                self.custom = config.custom.clone();
                 self.config = config;
 
                 let id = window::Id::unique();
@@ -1604,10 +1638,36 @@ impl Application for App {
                 None => Task::none(),
             },
             Message::RunCustom(index) => {
-                if let Some(entry) = self.custom.get(index) {
+                // A tile that asked to be confirmed goes to the page instead
+                // of running. The page is what runs it.
+                if self
+                    .custom
+                    .get(index)
+                    .is_some_and(|entry| entry.is_usable() && entry.confirm)
+                {
+                    self.page = Page::ConfirmCustom(index);
+                    return Task::none();
+                }
+                if let Some(entry) = self.custom.get(index).filter(|e| e.is_usable()) {
                     entry.run();
                 }
                 Task::none()
+            }
+            Message::ConfirmedCustom(index) => {
+                if let Some(entry) = self.custom.get(index).filter(|e| e.is_usable()) {
+                    entry.run();
+                }
+                // Back to the grid and shut. Leaving a confirmation page up
+                // behind a machine that is powering off is a page nobody will
+                // read, and if the command failed the popup is where you would
+                // go to try again.
+                self.page = Page::Root;
+                match self.popup.take() {
+                    Some(id) => {
+                        cosmic::iced::platform_specific::shell::commands::popup::destroy_popup(id)
+                    }
+                    None => Task::none(),
+                }
             }
 
             Message::SetMicrophone(percent) => run(self.microphone.set(percent)),
@@ -1868,6 +1928,7 @@ impl Application for App {
             Page::Bluetooth => self.bluetooth_page(),
             Page::Battery => self.battery_page(),
             Page::Dns => self.dns_page(),
+            Page::ConfirmCustom(index) => self.confirm_custom_page(index),
             Page::Vpn => self.vpn_page(),
         });
 

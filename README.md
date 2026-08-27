@@ -47,6 +47,9 @@ space, and if it will not fit, it snaps back and the cell it refused flashes
 off. Controls that are not on the grid are listed underneath; tap one to add
 it at the first free space.
 
+Your own tiles sit on the grid like anything else, so they drag, reshape and
+come off it the same way. They are placed for you the first time they appear.
+
 **Being on the grid is what shows a control.** There is no second switch to
 keep in agreement: place a control and it is drawn and its backend starts,
 remove it and neither happens. Three controls have no tile of their own —
@@ -146,8 +149,9 @@ only the ones whose program is actually installed, so nothing lands as a tile
 that does nothing. After first run they are ordinary custom tiles: edit,
 reshape or delete them like any other, and they are never put back.
 
-Log out, Restart and Power off act on a single press with no confirmation,
-like every tile here. Delete them if that is not what you want.
+Log out, Restart and Power off ask first, on a page of their own — a tile is
+a small target in a grid you click around in, and everything else in that grid
+is harmless. Any custom tile can do the same with `confirm = true`.
 
 Any command can become a tile — a screenshot, a script, a VPN toggle. Add a
 `[[custom]]` block to `config.toml`:

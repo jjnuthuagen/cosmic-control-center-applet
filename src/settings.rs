@@ -290,7 +290,7 @@ pub enum Message {
     /// Remove this instance from the layout.
     RemoveInstance(usize),
     /// Add a control at the first free cell.
-    AddControl(TileKey, TileShape),
+    AddControl(crate::tile_layout::Control, TileShape),
     /// Flip one of the non-tile controls on the Styling tab.
     ToggleExtra(&'static str, bool),
     /// The pointer entered (`Some`) or left (`None`) a placed tile.
@@ -462,23 +462,25 @@ impl Settings {
 
         section = section.push(tile_grid(tiles, ghosts, theme_spacing));
 
-        // Until the palette lands, controls absent from the layout keep their
-        // own grid underneath: tapping one adds it at the first free cell.
-        // The palette replaces this wholesale in the next commit.
-        let absent: Vec<TileKey> = self
+        // Anything not on the grid — a built-in control or one of the user's
+        // own tiles — sits underneath, where tapping adds it at the first free
+        // space. The palette replaces this wholesale later.
+        let absent: Vec<(crate::tile_layout::Control, TileShape)> = self
             .placeable()
             .into_iter()
-            .filter(|&k| !layout.iter().any(|i| i.control == k))
+            .filter(|(control, _)| !layout.iter().any(|i| i.control == *control))
             .collect();
         if !absent.is_empty() {
             let mut available: Vec<(Element<'_, Message>, TileShape)> =
                 Vec::with_capacity(absent.len());
-            for key in absent {
-                let shape = key.default_shape();
-                let tile =
-                    preview_frame(self.preview_tile(key, false, theme_spacing), false, false);
+            for (control, shape) in absent {
+                let tile = preview_frame(
+                    self.preview_tile(control, false, theme_spacing),
+                    false,
+                    false,
+                );
                 let area = cosmic::widget::mouse_area(tile)
-                    .on_press(Message::AddControl(key, shape))
+                    .on_press(Message::AddControl(control, shape))
                     .interaction(cosmic::iced::mouse::Interaction::Pointer);
                 available.push((area.into(), shape));
             }
@@ -506,20 +508,65 @@ impl Settings {
         self.config.appearance.layout.clone()
     }
 
-    /// Controls that can go on the grid, in default order.
-    fn placeable(&self) -> Vec<TileKey> {
-        crate::tile_layout::DEFAULT_ORDER
+    /// Everything that can go on the grid, in the order it is offered: the
+    /// built-in controls first, then the user's own tiles.
+    ///
+    /// Each carries the shape it would be added at — a control's default, and
+    /// for a custom tile whatever its `[[custom]]` entry asks for, so adding a
+    /// launcher back puts it back the size it was.
+    fn placeable(&self) -> Vec<(crate::tile_layout::Control, TileShape)> {
+        use crate::tile_layout::Control;
+
+        let builtin = crate::tile_layout::DEFAULT_ORDER
             .iter()
             .copied()
             .filter(|&k| crate::tile_layout::is_placeable(k))
-            .collect()
+            .map(|k| (Control::Builtin(k), k.default_shape()));
+
+        let custom = self
+            .config
+            .custom
+            .iter()
+            .enumerate()
+            .filter(|(_, entry)| entry.enabled)
+            .map(|(index, entry)| (Control::custom(index), entry.shape));
+
+        builtin.chain(custom).collect()
     }
 
-    /// One preview tile, using the real widgets with placeholder state.
-    fn preview_tile(&self, key: TileKey, enabled: bool, spacing: Spacing) -> Element<'_, Message> {
+    fn preview_tile(
+        &self,
+        control: crate::tile_layout::Control,
+        enabled: bool,
+        spacing: Spacing,
+    ) -> Element<'_, Message> {
+        use crate::tile_layout::Control;
+
         let style = self.config.appearance.style;
         let finish = self.config.appearance.finish;
         let label = |ftl: &str| crate::i18n::lookup(ftl, None);
+
+        // A user's own tile previews as itself: its icon, its name, and no
+        // press, because in here it is a thing being arranged rather than a
+        // command to run.
+        let key = match control {
+            Control::Builtin(key) => key,
+            Control::Custom { custom } => {
+                let Some(entry) = self.config.custom.get(custom) else {
+                    return crate::ui::ghost_tile(spacing);
+                };
+                return Tile::new(
+                    icons::resolve_owned(&entry.icon),
+                    entry.name.clone(),
+                    entry.detail.clone().unwrap_or_else(|| entry.name.clone()),
+                )
+                .style(style)
+                .finish(finish)
+                .compact(entry.shape == TileShape::Half)
+                .wide(entry.shape == TileShape::Wide)
+                .view(spacing);
+            }
+        };
 
         match key {
             TileKey::Connectivity => {
@@ -1025,11 +1072,11 @@ impl Application for Settings {
                 self.set_module(key, on);
                 self.save();
             }
-            Message::AddControl(key, shape) => {
+            Message::AddControl(control, shape) => {
                 self.working = self.config.appearance.layout.clone();
                 let (col, row) = crate::tile_layout::first_free(&self.working, shape);
                 self.working
-                    .push(crate::tile_layout::Instance::new(key, shape, col, row));
+                    .push(crate::tile_layout::Instance::new(control, shape, col, row));
                 self.commit();
             }
             Message::Present => {

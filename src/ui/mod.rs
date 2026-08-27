@@ -717,7 +717,7 @@ pub fn connectivity_tile<'a, Msg: Clone + 'static>(
 
     for row_data in rows {
         // Name only. The state line was dropped when the tile went from two
-        // columns to one: "a real SSID" does not fit beside a switch in half
+        // columns to one: a real SSID does not fit beside a switch in half
         // the popup's width, and a truncated SSID tells you less than the
         // icon already does.
         let labels = cosmic::widget::column::with_capacity(1).push(

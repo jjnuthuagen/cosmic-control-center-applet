@@ -115,6 +115,10 @@ seen once. If you only have ten minutes, do this section.
 - [ ] A `[[appearance.layout]]` block with `shape = "half"` draws that control icon-only at half width, four such tiles fit a row, and hovering shows name and state.
 - [ ] The same control placed twice, at two shapes, draws twice — both live, both showing the same state.
 - [ ] A custom tile with `shape = "half"` draws icon-only, with its name on hover.
+- [ ] Custom tiles appear in the Settings grid alongside the built-in controls, and drag, remove and re-add like them.
+- [ ] Pressing Log out, Restart or Power off opens a confirmation page rather than acting; Cancel returns to the grid and nothing happens.
+- [ ] Confirming closes the popup and runs the command.
+- [ ] Deleting a `[[custom]]` entry by hand does not leave a blank tile on the grid.
 - [ ] Styling -> Tile surface: "outline" leaves the popup as one unbroken sheet of frosted glass with only faint tile edges; "frosted" shows the blur through each tile while keeping it denser than the popup; "solid" fills each tile.
 - [ ] An outlined tile still lights up under the pointer, so it does not read as a label.
 - [ ] With the desktop's frosted styling off, all three finishes are legible — none leaves unreadable text on a transparent tile.
