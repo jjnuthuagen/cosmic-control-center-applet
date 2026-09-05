@@ -4,7 +4,22 @@ A single panel button that opens the controls you actually reach for: Wi-Fi, Blu
 
 Built in Rust with [libcosmic](https://github.com/pop-os/libcosmic) for the [COSMIC desktop](https://github.com/pop-os/cosmic-epoch).
 
-> **Status: pre-alpha.** Nothing is implemented yet. This README describes the target.
+<p align="center">
+  <img src="docs/media/hero.png" alt="The Control Center popup over a plain desktop: a tile grid with Wi-Fi, Bluetooth and VPN grouped, Dark Mode, tiling, Do Not Disturb, Keep Awake, battery, volume and brightness sliders, and a row of custom launcher tiles" width="720">
+</p>
+
+<table align="center">
+  <tr>
+    <td align="center"><img src="docs/media/demo-controls.gif" alt="Tiles reacting live: Bluetooth switching off and on, the volume and brightness sliders gliding, Do Not Disturb toggling" width="320"></td>
+    <td align="center"><img src="docs/media/demo-theming.gif" alt="The popup re-theming live: light mode, the three tile finishes, then accent colours cycling" width="320"></td>
+  </tr>
+  <tr>
+    <td align="center"><sub>Live state — every tile mirrors the system</sub></td>
+    <td align="center"><sub>Theming — light/dark, finishes, accents</sub></td>
+  </tr>
+</table>
+
+> **Status: pre-release.** The applet works day-to-day — modules, free tile placement, custom tiles, styling, badges — but the config format and defaults may still shift before a tagged release.
 
 ## Layout
 
@@ -80,6 +95,40 @@ Switching off a standalone tile does not empty that row inside the group:
 the group's rows follow the hardware, and the module itself keeps running as
 long as either wants it.
 
+
+## Gallery
+
+Every combination of tile **style** (how strongly a tile shows it is on:
+high / medium / low contrast, the rows below) and **finish** (how the surface
+is painted: frosted / solid / outline, the columns):
+
+<p align="center"><img src="docs/media/styles-grid.png" alt="Nine popups: each tile style crossed with each tile finish" width="760"></p>
+
+The popup follows the system theme — accent colour and light/dark are yours,
+not the applet's:
+
+<p align="center"><img src="docs/media/accents.png" alt="Five popups with different COSMIC accent colours: orange, red, violet, green, blue" width="900"></p>
+<p align="center"><img src="docs/media/light-mode.png" alt="The three finishes again, in light mode" width="760"></p>
+
+Under COSMIC's frosted styling the popup is real glass — the desktop blurs
+through it:
+
+<p align="center"><img src="docs/media/glass.png" alt="Close-up of the frosted popup over a striped background, the stripes blurring through the glass" width="560"></p>
+
+And because every tile is optional and free-placed, the same applet spans
+from a volume-and-brightness sliver to a full dashboard:
+
+<p align="center"><img src="docs/media/configs.png" alt="Four configurations: custom launcher tiles, every module enabled, a minimal sliver, and wide-form rows" width="820"></p>
+
+The Settings window (right-click the panel button) is where tiles are
+arranged — drag on the same grid the popup draws — and styled:
+
+<table align="center">
+  <tr>
+    <td align="center"><img src="docs/media/settings-tiles.png" alt="Settings, Tiles tab: the drag grid and the list of controls" width="380"></td>
+    <td align="center"><img src="docs/media/settings-styling.png" alt="Settings, Styling tab: tile style options and the panel icon picker" width="380"></td>
+  </tr>
+</table>
 
 ## Panel badges
 
