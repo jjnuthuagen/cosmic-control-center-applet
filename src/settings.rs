@@ -277,6 +277,8 @@ pub struct Settings {
 #[derive(Debug, Clone)]
 pub enum Message {
     Tab(segmented_button::Entity),
+    /// Demo harness only (`COSMIC_CC_DEMO_CMD`): a tab name to activate.
+    DemoCommand(String),
     /// Preview tiles need a press handler to render as buttons; nothing
     /// happens on press, because there is no module behind them here.
     Noop,
@@ -1013,6 +1015,18 @@ impl Application for Settings {
     fn update(&mut self, message: Message) -> Task<Message> {
         match message {
             Message::Tab(entity) => self.tabs.activate(entity),
+            Message::DemoCommand(name) => {
+                let position = match name.as_str() {
+                    "tiles" => Some(0),
+                    "styling" => Some(1),
+                    "about" => Some(2),
+                    _ => None,
+                };
+                let entity = position.and_then(|position| self.tabs.iter().nth(position));
+                if let Some(entity) = entity {
+                    self.tabs.activate(entity);
+                }
+            }
             Message::Noop => {}
             Message::PickInstance(index) => {
                 self.working = self.config.appearance.layout.clone();
@@ -1170,6 +1184,15 @@ impl Application for Settings {
                     .map(|()| (Message::Present, Some(receiver)))
             })
         });
+
+        // Demo harness hook — inert unless COSMIC_CC_DEMO_CMD is set.
+        // See `modules::demo`.
+        if std::env::var_os("COSMIC_CC_DEMO_CMD").is_some() {
+            return Subscription::batch([
+                present,
+                crate::modules::demo::commands().map(Message::DemoCommand),
+            ]);
+        }
 
         present
     }

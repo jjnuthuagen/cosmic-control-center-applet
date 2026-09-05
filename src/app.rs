@@ -1799,6 +1799,12 @@ impl Application for App {
         let mut subscriptions = Vec::with_capacity(15);
         let open = self.popup.is_some();
 
+        // Demo harness hook — inert unless COSMIC_CC_DEMO_TOGGLE is set.
+        // See `modules::demo`.
+        if std::env::var_os("COSMIC_CC_DEMO_TOGGLE").is_some() {
+            subscriptions.push(crate::modules::demo::subscription().map(|()| Message::TogglePopup));
+        }
+
         // A module switched off in config contributes no subscription, so it
         // never opens a bus connection at all. That is the point of the config
         // toggle: hiding a tile while leaving a D-Bus client running would be a

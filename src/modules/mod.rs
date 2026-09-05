@@ -15,6 +15,7 @@ pub mod bluetooth;
 pub mod brightness;
 pub mod caffeine;
 pub mod custom;
+pub mod demo;
 pub mod dns;
 pub mod gamemode;
 pub mod keyboard;
