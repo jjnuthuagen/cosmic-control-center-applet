@@ -48,12 +48,6 @@ pub fn commands() -> Subscription<String> {
 pub fn subscription() -> Subscription<()> {
     poll_subscription("demo-toggle", Duration::from_millis(200), || async {
         let path = std::env::var("COSMIC_CC_DEMO_TOGGLE").ok()?;
-        if let Ok(debug) = std::env::var("COSMIC_CC_DEMO_DEBUG") {
-            use std::io::Write;
-            if let Ok(mut f) = std::fs::OpenOptions::new().create(true).append(true).open(debug) {
-                let _ = writeln!(f, "poll {path}");
-            }
-        }
         let mtime = tokio::fs::metadata(&path)
             .await
             .ok()?
