@@ -45,6 +45,12 @@ unic-langid = "0.9"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 
+[dev-dependencies]
+# Demo/probe tooling only (examples/): not part of the applet build.
+wayland-client = "0.31"
+wayland-protocols = { version = "0.32", features = ["client"] }
+wayland-protocols-wlr = { version = "0.3", features = ["client"] }
+
 [profile.release]
 # Panel applets stay resident for the whole session, so favour a small, fast
 # binary over build speed. `panic = "abort"` is deliberately NOT set: parts of
