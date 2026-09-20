@@ -13,6 +13,8 @@ connect = Connect
 cancel = Cancel
 connected = Connected
 connecting = Connecting…
+connected-tap-to-leave = Connected — select to disconnect
+disconnecting = Disconnecting…
 paired = Paired
 
 # -- Connectivity (Wi-Fi + Bluetooth + VPN grouped tile) ----------------------

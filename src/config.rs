@@ -581,6 +581,22 @@ mod tests {
     use super::*;
 
     #[test]
+    fn the_shipped_example_config_parses() {
+        // `config.example.toml` is documentation people copy to
+        // `~/.config/…/config.toml`. Combined with `deny_unknown_fields`, an
+        // example that has drifted from the struct is not a stale comment — it
+        // is a config file that refuses to load, for the users most likely to
+        // have started from it.
+        let example = include_str!("../data/config.example.toml");
+        let parsed: Result<Config, _> = toml::from_str(example);
+        assert!(
+            parsed.is_ok(),
+            "data/config.example.toml does not parse: {}",
+            parsed.unwrap_err()
+        );
+    }
+
+    #[test]
     fn defaults_round_trip_through_toml() {
         let original = Config::default();
         let encoded = toml::to_string_pretty(&original).unwrap();

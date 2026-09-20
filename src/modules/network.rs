@@ -123,7 +123,22 @@ pub struct State {
     pub password_input: String,
     /// SSID currently being joined.
     pub connecting: Option<String>,
+    /// A disconnect is in flight. Separate from `connecting` because the two
+    /// mean opposite things to the row and can never be true at once.
+    pub disconnecting: bool,
     pub last_error: Option<(String, Error)>,
+}
+
+/// What a pending NetworkManager write is trying to do.
+///
+/// Internal to [`State::begin`] — the UI expresses intent by pressing a row,
+/// not by naming one of these.
+enum Intent {
+    Join {
+        ssid: String,
+        password: Option<String>,
+    },
+    Leave,
 }
 
 #[derive(Debug, Clone)]
@@ -131,6 +146,7 @@ pub enum Event {
     Snapshot(Box<Snapshot>),
     Unavailable,
     Connected(String),
+    Disconnected,
     Failed(String, Error),
 }
 
@@ -197,7 +213,19 @@ impl State {
                 self.clear_password_state_for(&ssid);
                 self.connected_ssid = Some(ssid);
             }
+            Event::Disconnected => {
+                self.disconnecting = false;
+                self.connected_ssid = None;
+                self.details = Details::default();
+                // Every row's `connected` flag came from the last snapshot, so
+                // clear them here too rather than leaving the old network
+                // looking live until the next poll lands.
+                for network in &mut self.networks {
+                    network.connected = false;
+                }
+            }
             Event::Failed(ssid, error) => {
+                self.disconnecting = false;
                 if self.connecting.as_deref() == Some(ssid.as_str()) {
                     self.connecting = None;
                 }
@@ -214,20 +242,32 @@ impl State {
         }
     }
 
-    /// Begin joining `ssid`, or open the password field if one is needed.
+    /// Begin joining `ssid`, leave the connected network, or open the password
+    /// field if one is needed.
     ///
     /// Returns `None` when the UI should just show the password box.
+    ///
+    /// Pressing the network you are already on disconnects, which is how
+    /// COSMIC's own network applet behaves: the active row *is* the disconnect
+    /// control. Before this, `AlreadyConnected` returned `None` and the
+    /// connected row was simply inert — there was no way to leave a network
+    /// from this page at all.
     pub fn select(&mut self, ssid: &str) -> Option<impl std::future::Future<Output = Event>> {
         let network = self.networks.iter().find(|n| n.ssid == ssid)?;
         match network.join_kind() {
-            JoinKind::AlreadyConnected | JoinKind::UnsupportedEnterprise => None,
+            JoinKind::AlreadyConnected => {
+                self.disconnecting = true;
+                self.last_error = None;
+                Some(run(Intent::Leave))
+            }
+            JoinKind::UnsupportedEnterprise => None,
             JoinKind::NeedsPassword => {
                 self.password_for = Some(ssid.to_string());
                 self.password_input.clear();
                 self.last_error = None;
                 None
             }
-            JoinKind::Direct => Some(self.begin_join(ssid.to_string(), None)),
+            JoinKind::Direct => Some(run(self.join_intent(ssid.to_string(), None))),
         }
     }
 
@@ -247,22 +287,18 @@ impl State {
             return None;
         }
         let password = self.password_input.clone();
-        Some(self.begin_join(ssid, Some(password)))
+        Some(run(self.join_intent(ssid, Some(password))))
     }
 
-    fn begin_join(
-        &mut self,
-        ssid: String,
-        password: Option<String>,
-    ) -> impl std::future::Future<Output = Event> {
+    /// Mark a join as in flight and describe it.
+    ///
+    /// Returns the [`Intent`] rather than the future so that every caller can
+    /// hand it to the same [`run`]: `select` returns one `impl Future`, and two
+    /// `async` blocks are two distinct types however identical their output.
+    fn join_intent(&mut self, ssid: String, password: Option<String>) -> Intent {
         self.connecting = Some(ssid.clone());
         self.last_error = None;
-        async move {
-            match join(&ssid, password).await {
-                Ok(()) => Event::Connected(ssid),
-                Err(error) => Event::Failed(ssid, error),
-            }
-        }
+        Intent::Join { ssid, password }
     }
 
     /// Release the password state, but only if it belongs to `ssid`.
@@ -514,6 +550,40 @@ async fn join(ssid: &str, password: Option<String>) -> Result<(), Error> {
         .map_err(classify)
 }
 
+/// The one place a NetworkManager write becomes a future.
+///
+/// Free rather than a method so it borrows nothing: callers mutate `State`
+/// first, then hand over an owned [`Intent`].
+async fn run(intent: Intent) -> Event {
+    match intent {
+        Intent::Leave => match leave().await {
+            Ok(()) => Event::Disconnected,
+            // The SSID is only carried so an error can name it. On a failed
+            // disconnect the network we are still on is the subject, and the
+            // page reads that from `connected_ssid`.
+            Err(error) => Event::Failed(String::new(), error),
+        },
+        Intent::Join { ssid, password } => match join(&ssid, password).await {
+            Ok(()) => Event::Connected(ssid),
+            Err(error) => Event::Failed(ssid, error),
+        },
+    }
+}
+
+/// Leave the current network without touching the radio.
+///
+/// `None` targets whichever device holds the active connection, which is what
+/// upstream does too. Passing an interface would mean tracking one per row for
+/// a case — two Wi-Fi adapters associated at once — that this applet's
+/// single-connection model does not represent anyway.
+///
+/// This deliberately does not forget the saved profile: leaving a network you
+/// expect to rejoin later should not throw away its password.
+async fn leave() -> Result<(), Error> {
+    let manager = nmrs::NetworkManager::new().await.map_err(classify)?;
+    manager.disconnect(None).await.map_err(classify)
+}
+
 async fn set_wireless(enabled: bool) -> Result<(), String> {
     nmrs::NetworkManager::new()
         .await
@@ -623,6 +693,65 @@ mod tests {
             network("Neighbour", 40).join_kind(),
             JoinKind::NeedsPassword
         );
+    }
+
+    #[test]
+    fn selecting_the_connected_network_starts_a_disconnect() {
+        // The regression this replaces: `AlreadyConnected` returned `None`, so
+        // the connected row was inert and there was no way to leave a network
+        // from the Wi-Fi page at all.
+        let mut state = State::default();
+        let mut connected = network("HomeNet", 80);
+        connected.connected = true;
+        connected.known = true;
+        state.networks = vec![connected];
+        state.connected_ssid = Some("HomeNet".to_string());
+
+        assert!(
+            state.select("HomeNet").is_some(),
+            "pressing the connected network must do something"
+        );
+        assert!(state.disconnecting, "and it must be a disconnect");
+        assert!(
+            state.password_for.is_none(),
+            "leaving a network never asks for a password"
+        );
+    }
+
+    #[test]
+    fn a_disconnect_clears_the_connection_without_waiting_for_a_scan() {
+        let mut state = State::default();
+        let mut connected = network("HomeNet", 80);
+        connected.connected = true;
+        state.networks = vec![connected];
+        state.connected_ssid = Some("HomeNet".to_string());
+        state.disconnecting = true;
+
+        state.update(Event::Disconnected);
+
+        assert_eq!(state.connected_ssid, None);
+        assert!(!state.disconnecting);
+        // Leaving the row's own flag set would show the network as live until
+        // the next poll landed, which reads as the disconnect having failed.
+        assert!(!state.networks[0].connected);
+    }
+
+    #[test]
+    fn another_network_can_be_picked_while_one_is_connected() {
+        // Switching networks is a plain join: NetworkManager tears down the
+        // previous association itself, so this must not be gated on
+        // disconnecting first.
+        let mut state = State::default();
+        let mut connected = network("HomeNet", 80);
+        connected.connected = true;
+        let mut other = network("Guest", 60);
+        other.known = true;
+        state.networks = vec![connected, other];
+        state.connected_ssid = Some("HomeNet".to_string());
+
+        assert!(state.select("Guest").is_some());
+        assert_eq!(state.connecting.as_deref(), Some("Guest"));
+        assert!(!state.disconnecting);
     }
 
     #[test]

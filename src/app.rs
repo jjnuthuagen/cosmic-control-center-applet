@@ -1009,7 +1009,13 @@ impl App {
 
             for net in self.wifi.networks.iter().take(self.wifi_rows) {
                 let detail = match net.join_kind() {
-                    network::JoinKind::AlreadyConnected => Some(fl!("connected")),
+                    // Says what pressing it does, not merely what it is. The
+                    // row is the disconnect control, and "Connected" alone gave
+                    // no hint that it could be pressed at all.
+                    network::JoinKind::AlreadyConnected if self.wifi.disconnecting => {
+                        Some(fl!("disconnecting"))
+                    }
+                    network::JoinKind::AlreadyConnected => Some(fl!("connected-tap-to-leave")),
                     network::JoinKind::UnsupportedEnterprise => Some(fl!("enterprise-in-settings")),
                     _ if self.wifi.connecting.as_deref() == Some(net.ssid.as_str()) => {
                         Some(fl!("connecting"))
@@ -1023,8 +1029,11 @@ impl App {
                     detail,
                     net.connected,
                     // Enterprise networks with no profile get no action rather
-                    // than a password box that cannot possibly work.
-                    (net.join_kind() != network::JoinKind::UnsupportedEnterprise)
+                    // than a password box that cannot possibly work. Everything
+                    // else is pressable, including the connected network —
+                    // that press is how you leave it.
+                    (net.join_kind() != network::JoinKind::UnsupportedEnterprise
+                        && !self.wifi.disconnecting)
                         .then(|| Message::WifiSelect(net.ssid.clone())),
                     spacing,
                 ));
