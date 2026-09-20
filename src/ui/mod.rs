@@ -251,9 +251,17 @@ impl<'a, Msg: Clone + 'static> Tile<'a, Msg> {
         let content: Element<'a, Msg> = if self.compact {
             // Centred glyph, nothing else. The name and state are in the
             // tooltip below.
+            // `height(Fill)` is what centres the glyph, and it is not
+            // optional. libcosmic's button lays its content out at
+            // `(padding.left, padding.top)` and never centres it vertically,
+            // so content left to shrink sits hard against the top of a
+            // fixed-height tile. Filling the content box first gives
+            // `align_y` something to centre within.
             container(glyph)
                 .width(Length::Fill)
+                .height(Length::Fill)
                 .align_x(Alignment::Center)
+                .align_y(Alignment::Center)
                 .into()
         } else {
             let limit = if self.wide {
@@ -263,6 +271,9 @@ impl<'a, Msg: Clone + 'static> Tile<'a, Msg> {
             };
             let mut line = row::with_capacity(3)
                 .align_y(Alignment::Center)
+                // See the compact branch: without `height(Fill)` the row
+                // shrinks and the button pins it to the top edge.
+                .height(Length::Fill)
                 .spacing(spacing.gap)
                 .push(glyph)
                 .push(
@@ -796,6 +807,9 @@ pub fn connectivity_tile<'a, Msg: Clone + 'static>(
 
         let inner = row::with_capacity(2)
             .align_y(Alignment::Center)
+            // `height(Fill)`: the button below is a fixed height and never
+            // centres its content vertically — see `Tile::view`.
+            .height(Length::Fill)
             .spacing(spacing.gap)
             .push(glyph)
             .push(labels.width(Length::Fill));
