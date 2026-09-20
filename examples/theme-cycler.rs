@@ -20,7 +20,9 @@ fn main() {
             .map(|s| s.parse::<f32>().expect("0-255 number") / 255.0)
             .collect();
         assert_eq!(px.len(), 3, "usage: theme-cycler <r> <g> <b> | reset");
-        builder.accent = Some(cosmic::cosmic_theme::palette::Srgb::new(px[0], px[1], px[2]));
+        builder.accent = Some(cosmic::cosmic_theme::palette::Srgb::new(
+            px[0], px[1], px[2],
+        ));
     }
 
     let theme = builder.build();
