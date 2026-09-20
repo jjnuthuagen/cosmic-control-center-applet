@@ -117,6 +117,19 @@ const MAX_STATE_CHARS: usize = 14;
 /// roughly twice the room before anything has to be cut.
 const MAX_WIDE_STATE_CHARS: usize = 30;
 
+/// Whether a tile hands its name to a tooltip.
+///
+/// Off by default — a tooltip under every tile is noise once you know the
+/// grid, and hover text that will not go away is worse than no hover text.
+///
+/// A **compact** tile overrides that and always keeps its tooltip: the Half
+/// shape draws an icon and nothing else, so with the tooltip gone its name is
+/// unreachable and the tile is a mystery glyph. The setting is about removing
+/// redundancy, not about hiding the only copy of a fact.
+fn shows_tooltip(compact: bool, enabled: bool) -> bool {
+    compact || enabled
+}
+
 /// A grid tile: an icon and the thing's current state.
 pub struct Tile<'a, Msg> {
     /// Icon only — the Half shape. Name and state move into the tooltip,
@@ -138,6 +151,8 @@ pub struct Tile<'a, Msg> {
     /// Ignored unless `wide`, because a Small tile has nowhere to put it.
     detail: Option<String>,
     on_press: Option<Msg>,
+    /// The user's "show tile tooltips" preference. See [`shows_tooltip`].
+    tooltips: bool,
 }
 
 impl<'a, Msg: Clone + 'static> Tile<'a, Msg> {
@@ -157,6 +172,7 @@ impl<'a, Msg: Clone + 'static> Tile<'a, Msg> {
             detail: None,
             on_press: None,
             compact: false,
+            tooltips: false,
         }
     }
 
@@ -182,6 +198,12 @@ impl<'a, Msg: Clone + 'static> Tile<'a, Msg> {
     /// How the tile's own surface is painted. See [`TileFinish`].
     pub fn finish(mut self, finish: TileFinish) -> Self {
         self.finish = finish;
+        self
+    }
+
+    /// Whether hovering names the tile. See [`shows_tooltip`].
+    pub fn tooltips(mut self, tooltips: bool) -> Self {
+        self.tooltips = tooltips;
         self
     }
 
@@ -290,6 +312,9 @@ impl<'a, Msg: Clone + 'static> Tile<'a, Msg> {
         // Without this, a user who does not recognise an icon has no way to
         // find out what it is. A compact tile shows neither, so its tooltip
         // carries both.
+        if !shows_tooltip(self.compact, self.tooltips) {
+            return tile.into();
+        }
         let hint = if self.compact && !self.state.is_empty() && self.state != self.name {
             format!("{} — {}", self.name, self.state)
         } else {
@@ -361,6 +386,37 @@ fn finish_paint(
 /// thinner value left the tiles reading as smudges rather than surfaces.
 const FROSTED_TILE_ALPHA: f32 = 0.68;
 
+/// How round a tile's corners are, following the desktop's Appearance style.
+///
+/// A pill — half the single-row tile height — capped by the largest radius the
+/// chosen style allows. COSMIC's roundness presets set that cap to 160 for
+/// Round, 8 for Slightly round and 2 for Square, so the cap is what makes the
+/// setting legible here: Round lets the pill through, Slightly round trims it
+/// to a gentle corner, Square keeps it square.
+///
+/// `corner_radii.radius_s` — what every tile used to draw — is 8 under *both*
+/// Round and Slightly round, so switching between those two changed nothing in
+/// the popup and the applet appeared to ignore the setting entirely.
+///
+/// Always the **single-row** height, never the tile's own: half a Tall tile's
+/// height is a balloon-like corner no other COSMIC surface has, and a grid
+/// whose tiles disagree about their corners does not read as one family.
+pub fn tile_radius(theme: &cosmic::Theme) -> f32 {
+    pill_radius(theme, tile_height(Spacing::from_theme(theme)))
+}
+
+/// The same treatment for a Connectivity row, which is a control *inside* a
+/// tile and so has to be rounded on its own, smaller height. Given the tile's
+/// radius it would swallow its own corners into the card behind it.
+fn row_radius(theme: &cosmic::Theme) -> f32 {
+    pill_radius(theme, connectivity_row_height(Spacing::from_theme(theme)))
+}
+
+/// Half of `height`, clamped to the largest radius the desktop's style allows.
+fn pill_radius(theme: &cosmic::Theme, height: f32) -> f32 {
+    (height / 2.0).min(theme.cosmic().corner_radii.radius_xl[0])
+}
+
 /// The edge a tile draws, for the finishes that have one.
 fn tile_border(theme: &cosmic::Theme, width: f32) -> Border {
     let cosmic = theme.cosmic();
@@ -369,7 +425,7 @@ fn tile_border(theme: &cosmic::Theme, width: f32) -> Border {
     // keeps an outlined grid quiet enough not to look like a table.
     edge.alpha *= 0.7;
     Border {
-        radius: cosmic.corner_radii.radius_s.into(),
+        radius: tile_radius(theme).into(),
         width,
         color: if width > 0.0 {
             Color::from(edge)
@@ -520,7 +576,7 @@ pub fn ghost_slot<'a, Msg: 'a>(refused: bool, spacing: Spacing) -> Element<'a, M
             container::Style {
                 background: Some(Background::Color(Color::from(fill))),
                 border: Border {
-                    radius: cosmic.corner_radii.radius_s.into(),
+                    radius: tile_radius(theme).into(),
                     width: 1.0,
                     color: Color::from(edge),
                 },
@@ -552,7 +608,7 @@ pub fn ghost_tile<'a, Msg: 'a>(spacing: Spacing) -> Element<'a, Msg> {
             container::Style {
                 background: Some(Background::Color(Color::from(fill))),
                 border: Border {
-                    radius: cosmic.corner_radii.radius_s.into(),
+                    radius: tile_radius(theme).into(),
                     width: 1.0,
                     color: Color::from(edge),
                 },
@@ -803,10 +859,9 @@ fn quiet_button() -> button::ButtonClass {
         theme: &cosmic::Theme,
         fill: Option<cosmic::cosmic_theme::palette::Srgba>,
     ) -> button::Style {
-        let cosmic = theme.cosmic();
         button::Style {
             background: fill.map(|c| Background::Color(Color::from(c))),
-            border_radius: cosmic.corner_radii.radius_s.into(),
+            border_radius: row_radius(theme).into(),
             // Left as None on purpose — that is what makes the row inherit
             // the tile's text and icon colour instead of being told one.
             text_color: None,
@@ -873,11 +928,18 @@ pub enum SliderMode {
 pub struct Look {
     pub finish: TileFinish,
     pub spacing: Spacing,
+    /// See [`shows_tooltip`]. A slider tile is never compact, so this is the
+    /// whole of the question for one.
+    pub tooltips: bool,
 }
 
 impl Look {
-    pub fn new(finish: TileFinish, spacing: Spacing) -> Self {
-        Self { finish, spacing }
+    pub fn new(finish: TileFinish, spacing: Spacing, tooltips: bool) -> Self {
+        Self {
+            finish,
+            spacing,
+            tooltips,
+        }
     }
 }
 
@@ -890,7 +952,11 @@ pub fn wide_slider_tile<'a, Msg: Clone + 'static>(
     mode: SliderMode,
     look: Look,
 ) -> Element<'a, Msg> {
-    let Look { finish, spacing } = look;
+    let Look {
+        finish,
+        spacing,
+        tooltips,
+    } = look;
     let leading: Element<'a, Msg> = match on_icon_press.filter(|_| mode != SliderMode::Inert) {
         Some(msg) => button::icon(icon::from_name(icon_name).size(ICON_SIZE))
             .padding(spacing.pad_y / 2)
@@ -925,6 +991,9 @@ pub fn wide_slider_tile<'a, Msg: Clone + 'static>(
         .class(tile_surface(finish))
         .into();
 
+    if !shows_tooltip(false, tooltips) {
+        return tile;
+    }
     tooltip(tile, text::body(label.into()), tooltip::Position::Top).into()
 }
 
@@ -1219,6 +1288,82 @@ mod tests {
             .hovered(false, false, &tile_button_class(TileFinish::Outline))
             .background
             .is_some());
+    }
+
+    /// A theme that is stock COSMIC except for the roundness the user picked
+    /// in Appearance.
+    fn theme_with(roundness: cosmic::cosmic_theme::Roundness) -> cosmic::Theme {
+        let mut cosmic = cosmic::Theme::dark().cosmic().clone();
+        cosmic.corner_radii = roundness.into();
+        let mut theme = cosmic::Theme::custom(std::sync::Arc::new(cosmic));
+        theme.transparent = true;
+        theme
+    }
+
+    #[test]
+    fn an_icon_only_tile_keeps_its_tooltip_when_tooltips_are_off() {
+        // Turning tooltips off must not make a Half tile unidentifiable: it
+        // draws a glyph and nothing else, so the tooltip is the only place its
+        // name exists.
+        assert!(shows_tooltip(true, false));
+
+        // Everywhere else, off means off and on means on.
+        assert!(!shows_tooltip(false, false));
+        assert!(shows_tooltip(false, true));
+        assert!(shows_tooltip(true, true));
+    }
+
+    #[test]
+    fn a_tile_follows_the_desktops_roundness_instead_of_one_fixed_radius() {
+        use cosmic::cosmic_theme::Roundness;
+        use cosmic::widget::button::Catalog;
+
+        // The bug this pins: every tile drew `corner_radii.radius_s`, which
+        // COSMIC leaves at 8 for *both* Round and Slightly round. Switching
+        // between those two styles in Appearance changed nothing in the
+        // popup, so the applet visibly ignored the setting.
+        let radius_for = |roundness| {
+            theme_with(roundness)
+                .active(false, false, &tile_button_class(TileFinish::Solid))
+                .border_radius
+                .top_left
+        };
+
+        let round = radius_for(Roundness::Round);
+        let slightly = radius_for(Roundness::SlightlyRound);
+        let square = radius_for(Roundness::Square);
+
+        // Each style has to be visibly different from the next, or the
+        // setting still does nothing.
+        assert!(round > slightly, "{round} !> {slightly}");
+        assert!(slightly > square, "{slightly} !> {square}");
+
+        // Round is a pill: a single-row tile rounded by half its own height.
+        let theme = theme_with(Roundness::Round);
+        let expected = tile_height(Spacing::from_theme(&theme)) / 2.0;
+        assert!(
+            (round - expected).abs() < 0.01,
+            "round gave {round}, want a {expected} pill"
+        );
+    }
+
+    #[test]
+    fn a_tall_tile_is_rounded_like_a_single_row_one() {
+        use cosmic::cosmic_theme::Roundness;
+
+        // Half of a *tall* tile's own height would be an extreme, balloon-like
+        // corner no other COSMIC surface has. The radius comes from the
+        // single-row height whatever the tile's own footprint, so the grid
+        // reads as one family.
+        let theme = theme_with(Roundness::Round);
+        let spacing = Spacing::from_theme(&theme);
+        let radius = tile_radius(&theme);
+
+        assert!((radius - tile_height(spacing) / 2.0).abs() < 0.01);
+        assert!(
+            radius < tall_height(spacing) / 2.0,
+            "a tall tile must not be rounded by half its own height"
+        );
     }
 
     #[test]

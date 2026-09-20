@@ -76,6 +76,9 @@ specific regressions listed below. They do **not** cover layout — see section 
 | `migration_never_places_a_control_that_has_no_tile` | Media, Game Mode or the charge limit being placed as tiles they have never had. |
 | `validate_drops_overlaps_first_wins_and_keeps_gaps` | A hand-edited layout drawing two tiles over each other, or a kept gap being closed. |
 | `a_tile_can_be_nudged_into_cells_its_own_footprint_covers` | Every short move being refused because the held tile collides with where it already is. |
+| `a_tile_follows_the_desktops_roundness_instead_of_one_fixed_radius` | Tiles drawing a fixed small radius, which COSMIC leaves at 8 for both Round and Slightly round — so the Appearance style did nothing here. |
+| `a_tall_tile_is_rounded_like_a_single_row_one` | A Tall tile rounded by half its *own* height, a balloon corner no other COSMIC surface has. |
+| `an_icon_only_tile_keeps_its_tooltip_when_tooltips_are_off` | The tooltip switch stripping the only copy of a Half tile's name, leaving a mystery glyph. |
 | `a_tile_is_painted_in_a_frost_aware_colour` | Tiles ignoring the frosted_* theme flags, so a full popup reads as a film over the blur. |
 | `a_connectivity_row_inherits_its_colour_instead_of_being_accented` | The grouped tile's labels and glyphs coming out accent-coloured while every other tile stays neutral. |
 
@@ -122,6 +125,16 @@ seen once. If you only have ten minutes, do this section.
 - [ ] Styling -> Tile surface: "outline" leaves the popup as one unbroken sheet of frosted glass with only faint tile edges; "frosted" shows the blur through each tile while keeping it denser than the popup; "solid" fills each tile.
 - [ ] An outlined tile still lights up under the pointer, so it does not read as a label.
 - [ ] With the desktop's frosted styling off, all three finishes are legible — none leaves unreadable text on a transparent tile.
+- [ ] Styling -> Open as a sidebar: the controls appear as a full-height strip on the right, at the same width as the popup, sitting over whatever window is underneath without resizing it.
+- [ ] The strip stops short of the panel rather than running under it; a dock on the same edge is covered.
+- [ ] Switching to Left edge moves it; the choice only appears while the sidebar is on.
+- [ ] Clicking elsewhere closes the sidebar; the panel button toggles it open and shut.
+- [ ] The Wi-Fi password field accepts typing while the sidebar is open.
+- [ ] Turning the sidebar off returns to the popup above the panel button.
+- [ ] Styling -> Show tile tooltips is off on a fresh config; hovering a tile names nothing. Turning it on brings the names back.
+- [ ] With tooltips off, a `shape = "half"` tile still names itself on hover — it has nowhere else to put its name.
+- [ ] Appearance -> Style: Round makes single-row tiles pill-shaped, Slightly round gives a gentle corner, Square keeps them square. Tall and Wide tiles take the same corner as a single-row one, not a bigger one.
+- [ ] The drag outline, the refused-drop flash and the Settings grid's unselected outline all follow the tile's corner rather than framing a pill in a square.
 - [ ] Styling -> Panel badges: with Low battery on and the machine under the threshold on battery, a red battery sits beside the panel button; plugging in takes it away.
 - [ ] With Wi-Fi disconnected on, dropping Wi-Fi puts a red mark on the panel; it goes when the chosen timeout passes, or stays if that is "until it reconnects".
 - [ ] Reconnecting takes the Wi-Fi badge down immediately, whatever the timeout.

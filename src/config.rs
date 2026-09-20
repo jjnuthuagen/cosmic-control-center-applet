@@ -66,6 +66,22 @@ pub struct Appearance {
     #[serde(default)]
     pub finish: TileFinish,
     pub icon: PanelIcon,
+    /// Draw the controls as a full-height strip against the side of the
+    /// screen instead of a popup above the panel button.
+    ///
+    /// Same content at the same width either way — only the surface differs.
+    #[serde(default)]
+    pub sidebar: bool,
+    /// Which edge the sidebar hugs. Ignored unless `sidebar`.
+    #[serde(default)]
+    pub sidebar_side: SidebarSide,
+    /// Whether hovering a tile names it.
+    ///
+    /// Off by default: once the grid is familiar a tooltip under every tile is
+    /// noise. Icon-only (Half) tiles keep theirs regardless — see
+    /// [`crate::ui`] — because there the tooltip is the only copy of the name.
+    #[serde(default)]
+    pub tooltips: bool,
     /// The placed tiles: what is drawn, at what size, and where.
     ///
     /// `[[appearance.layout]]` entries. Empty means "not migrated yet" —
@@ -161,6 +177,28 @@ impl TileFinish {
             TileFinish::Solid => "finish-solid-detail",
             TileFinish::Frosted => "finish-frosted-detail",
             TileFinish::Outline => "finish-outline-detail",
+        }
+    }
+}
+
+/// Which edge of the screen the sidebar hugs.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(rename_all = "lowercase")]
+pub enum SidebarSide {
+    Left,
+    /// The default: the side the clock and the status icons already live on,
+    /// so the strip opens where you were already looking.
+    #[default]
+    Right,
+}
+
+impl SidebarSide {
+    pub const ALL: [SidebarSide; 2] = [SidebarSide::Left, SidebarSide::Right];
+
+    pub fn l10n_key(self) -> &'static str {
+        match self {
+            SidebarSide::Left => "sidebar-side-left",
+            SidebarSide::Right => "sidebar-side-right",
         }
     }
 }

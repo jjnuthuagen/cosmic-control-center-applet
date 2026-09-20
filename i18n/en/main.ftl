@@ -178,6 +178,12 @@ tiling-off = Floating
 settings-extras = Other controls
 settings-extras-detail = These are not grid tiles: Media is the row under the grid, and Game Mode and the charge limit live inside the Battery page.
 
+settings-sidebar = Open as a sidebar
+settings-sidebar-detail = A full-height strip against the side of the screen instead of a popup above the panel button. Same controls, same width.
+sidebar-side-left = Left edge
+sidebar-side-right = Right edge
+settings-tooltips = Show tile tooltips
+settings-tooltips-detail = Name the tile when you hover it. Icon-only tiles always show theirs, since there is nowhere else for the name to go.
 settings-finish = Tile surface
 settings-finish-detail = How much of the desktop's frosted glass comes through a tile.
 finish-solid = Solid
