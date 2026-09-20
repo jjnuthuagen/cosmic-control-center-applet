@@ -11,7 +11,10 @@ impl Dispatch<wl_registry::WlRegistry, ()> for App {
         _: &Connection,
         _: &QueueHandle<Self>,
     ) {
-        if let wl_registry::Event::Global { interface, version, .. } = event {
+        if let wl_registry::Event::Global {
+            interface, version, ..
+        } = event
+        {
             println!("{interface} v{version}");
         }
     }

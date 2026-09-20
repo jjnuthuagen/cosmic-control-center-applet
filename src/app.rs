@@ -1516,20 +1516,41 @@ impl Application for App {
                 let popup =
                     cosmic::iced::platform_specific::shell::commands::popup::get_popup(settings);
 
-                // Ask for the blur ourselves. libcosmic issues `enable_blur`
-                // only for surfaces it tracks in `surface_views`, and a popup
-                // made with `get_popup` is not one of those — `Core::blur`
-                // takes the untracked branch, which for an applet is a flat
-                // `false`. So the theme said frosted_applets, the popup drew
-                // its translucent background, and nothing behind it was ever
+                // Ask for the blur ourselves. libcosmic issues blur only for
+                // surfaces it tracks in `surface_views`, and a popup made with
+                // `get_popup` is not one of those — `Core::blur` takes the
+                // untracked branch, which for an applet is a flat `false`. So
+                // the theme said frosted_applets, the popup drew its
+                // translucent background, and nothing behind it was ever
                 // blurred: transparency without frost, which reads as a film
                 // over the wallpaper rather than glass.
+                //
+                // It has to be the Wayland command and not `window::enable_blur`.
+                // That one resolves the id against the winit window map and
+                // silently does nothing when the lookup misses — and the popup's
+                // surface does not exist yet in the same batch that asks for it,
+                // so the request was dropped every time. The Wayland command
+                // parks an unknown id in `pending_blur` and applies it the
+                // moment the popup surface is created.
+                //
+                // The region is the whole surface: the compositor clips it to
+                // the popup, and we do not know the final size here anyway —
+                // the popup autosizes to its content.
                 //
                 // Gated on the same question libcosmic would have asked, so
                 // turning frosted styling off in Settings still turns it off
                 // here.
                 if self.core.frosted(self.core.system_theme().cosmic()) {
-                    Task::batch([popup, cosmic::iced::window::enable_blur(id)])
+                    let blur = cosmic::iced::platform_specific::shell::commands::blur::blur(
+                        id,
+                        Some(vec![cosmic::iced::Rectangle {
+                            x: 0.0,
+                            y: 0.0,
+                            width: f32::MAX,
+                            height: f32::MAX,
+                        }]),
+                    );
+                    Task::batch([popup, blur.discard()])
                 } else {
                     popup
                 }
