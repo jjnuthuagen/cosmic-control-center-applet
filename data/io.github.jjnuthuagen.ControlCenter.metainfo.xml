@@ -35,6 +35,11 @@
     </screenshot>
   </screenshots>
   <releases>
+    <release version="0.2.1" date="2026-09-20">
+      <description>
+        <p>Flatpak support: volume control and custom tiles work from inside the sandbox, and the applet ships AppStream metadata for the COSMIC Store.</p>
+      </description>
+    </release>
     <release version="0.2.0" date="2026-08-27">
       <description>
         <p>Theme sync with COSMIC accents and frosted-glass popups, plus a demo harness.</p>
