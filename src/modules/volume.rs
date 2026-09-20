@@ -98,6 +98,27 @@ impl Backend {
     /// Pick a backend once. Returns `None` when neither tool exists, which is
     /// how the module reports itself unavailable.
     fn detect() -> Option<Self> {
+        // Inside Flatpak the tools live on the host, invisible to a PATH walk,
+        // so detection has to actually run them there. That costs a process
+        // per probe, which is why the result is cached — outside a sandbox the
+        // direct PATH lookup stays as the cheap path.
+        if crate::process::in_flatpak() {
+            static DETECTED: std::sync::OnceLock<Option<Backend>> = std::sync::OnceLock::new();
+            return *DETECTED.get_or_init(|| {
+                for (backend, binary) in [(Backend::Wpctl, "wpctl"), (Backend::Pactl, "pactl")] {
+                    let found = crate::process::host_command(binary)
+                        .arg("--version")
+                        .stdout(std::process::Stdio::null())
+                        .stderr(std::process::Stdio::null())
+                        .status()
+                        .is_ok_and(|status| status.success());
+                    if found {
+                        return Some(backend);
+                    }
+                }
+                None
+            });
+        }
         // `which` is avoided: PATH lookup is cheap to do directly and one less
         // process to depend on.
         for (backend, binary) in [(Backend::Wpctl, "wpctl"), (Backend::Pactl, "pactl")] {
@@ -278,7 +299,9 @@ async fn write_mute(direction: Direction, muted: bool) -> std::io::Result<()> {
 }
 
 async fn run(binary: &str, args: &[&str]) -> Option<String> {
-    let output = Command::new(binary)
+    // Through the host shim so the same call works inside a Flatpak sandbox,
+    // where wpctl/pactl only exist outside.
+    let output = Command::from(crate::process::host_command(binary))
         // These tools localise their output. Forcing C keeps the parsers
         // matching literal "Volume:" and "Mute:" on every system.
         .env("LC_ALL", "C")

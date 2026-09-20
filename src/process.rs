@@ -13,6 +13,32 @@
 
 use std::process::Command;
 
+/// Whether this process is inside a Flatpak sandbox.
+///
+/// Flatpak sets `FLATPAK_ID` for every sandboxed process, and nothing else
+/// does. The distinction matters wherever the applet spawns a host tool
+/// (`wpctl`, custom tiles): those binaries live outside the sandbox and can
+/// only be reached through `flatpak-spawn --host`.
+pub fn in_flatpak() -> bool {
+    std::env::var_os("FLATPAK_ID").is_some()
+}
+
+/// A `Command` for `program` that runs on the host even from inside Flatpak.
+///
+/// Outside a sandbox this is `Command::new(program)`. Inside one it becomes
+/// `flatpak-spawn --host program`, which asks the session's Flatpak service to
+/// run the program outside; the manifest grants `--talk-name=org.freedesktop.Flatpak`
+/// for exactly this.
+pub fn host_command(program: impl AsRef<std::ffi::OsStr>) -> Command {
+    if in_flatpak() {
+        let mut command = Command::new("flatpak-spawn");
+        command.arg("--host").arg(program);
+        command
+    } else {
+        Command::new(program)
+    }
+}
+
 /// Spawn `command`, reaping it in the background.
 ///
 /// Returns the child's pid on success. The child's exit status is deliberately
