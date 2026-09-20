@@ -105,7 +105,9 @@ impl Tile {
             return;
         };
 
-        let mut command = std::process::Command::new(program);
+        // Host shim: a custom tile names a program on the user's system, which
+        // from inside a Flatpak sandbox is only reachable via flatpak-spawn.
+        let mut command = crate::process::host_command(program);
         command.args(arguments);
         // Reaped in the background. Nothing waits for the result, but something
         // has to collect it — the applet is the parent and runs for the whole
@@ -252,7 +254,7 @@ fn is_present(tile: &Tile) -> bool {
 /// live in different places, and which one an app is in is not this applet's
 /// business.
 fn flatpak_installed(app_id: &str) -> bool {
-    std::process::Command::new("flatpak")
+    crate::process::host_command("flatpak")
         .args(["info", app_id])
         .stdout(std::process::Stdio::null())
         .stderr(std::process::Stdio::null())

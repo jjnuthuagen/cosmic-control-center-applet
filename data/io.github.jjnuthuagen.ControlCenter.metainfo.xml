@@ -1,0 +1,59 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<component type="desktop-application">
+  <id>io.github.jjnuthuagen.ControlCenter</id>
+  <metadata_license>CC0-1.0</metadata_license>
+  <project_license>MIT OR Apache-2.0</project_license>
+  <project_group>COSMIC</project_group>
+  <developer id="io.github.jjnuthuagen"><name>James Nuthall</name></developer>
+  <name>Control Center</name>
+  <summary>Quick settings grid for the COSMIC panel</summary>
+  <description>
+    <p>A single panel button that opens the controls you actually reach for: Wi-Fi, Bluetooth, battery power profile, DNS profile, volume and brightness — laid out as a Quick-Settings-style grid with drill-down sub-menus.</p>
+    <p>Every tile can be shown, hidden or reordered, custom launcher tiles can be added, and the popup follows the COSMIC theme, including accent colors and frosted-glass transparency.</p>
+  </description>
+  <url type="homepage">https://github.com/jjnuthuagen/cosmic-control-center-applet</url>
+  <url type="bugtracker">https://github.com/jjnuthuagen/cosmic-control-center-applet/issues</url>
+  <content_rating type="oars-1.1" />
+  <icon type="stock">io.github.jjnuthuagen.ControlCenter</icon>
+  <launchable type="desktop-id">io.github.jjnuthuagen.ControlCenter.desktop</launchable>
+  <screenshots>
+    <screenshot type="default">
+      <image>https://raw.githubusercontent.com/jjnuthuagen/cosmic-control-center-applet/main/docs/media/hero.png</image>
+      <caption>The quick-settings grid, opened from the panel</caption>
+    </screenshot>
+    <screenshot>
+      <image>https://raw.githubusercontent.com/jjnuthuagen/cosmic-control-center-applet/main/docs/media/accents.png</image>
+      <caption>The popup follows the COSMIC accent color</caption>
+    </screenshot>
+    <screenshot>
+      <image>https://raw.githubusercontent.com/jjnuthuagen/cosmic-control-center-applet/main/docs/media/light-mode.png</image>
+      <caption>Light mode</caption>
+    </screenshot>
+    <screenshot>
+      <image>https://raw.githubusercontent.com/jjnuthuagen/cosmic-control-center-applet/main/docs/media/settings-tiles.png</image>
+      <caption>Settings: choose and reorder the tiles</caption>
+    </screenshot>
+  </screenshots>
+  <releases>
+    <release version="0.2.0" date="2026-08-27">
+      <description>
+        <p>Theme sync with COSMIC accents and frosted-glass popups, plus a demo harness.</p>
+      </description>
+    </release>
+    <release version="0.1.6" date="2026-08-26">
+      <description>
+        <p>Fixes and polish across the tile grid and settings window.</p>
+      </description>
+    </release>
+  </releases>
+  <provides>
+    <id>com.system76.CosmicApplet</id>
+    <binaries>
+      <binary>cosmic-control-center-applet</binary>
+    </binaries>
+  </provides>
+  <categories>
+    <category>Utility</category>
+    <category>Settings</category>
+  </categories>
+</component>
