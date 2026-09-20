@@ -5,7 +5,7 @@ A single panel button that opens the controls you actually reach for: Wi-Fi, Blu
 Built in Rust with [libcosmic](https://github.com/pop-os/libcosmic) for the [COSMIC desktop](https://github.com/pop-os/cosmic-epoch).
 
 <p align="center">
-  <img src="docs/media/hero.png" alt="The Control Center popup over a plain desktop: a tile grid with Wi-Fi, Bluetooth and VPN grouped, Dark Mode, tiling, Do Not Disturb, Keep Awake, battery, volume and brightness sliders, and a row of custom launcher tiles" width="720">
+  <img src="docs/media/demo-settings.gif" alt="The Control Center popup and its Settings window over a bamboo-forest desktop, cycling through light mode, frosted-glass styling and dark mode with outline tiles, ending on close-ups of the popup" width="720">
 </p>
 
 <table align="center">
