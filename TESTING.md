@@ -125,6 +125,12 @@ seen once. If you only have ten minutes, do this section.
 - [ ] Styling -> Tile surface: "outline" leaves the popup as one unbroken sheet of frosted glass with only faint tile edges; "frosted" shows the blur through each tile while keeping it denser than the popup; "solid" fills each tile.
 - [ ] An outlined tile still lights up under the pointer, so it does not read as a label.
 - [ ] With the desktop's frosted styling off, all three finishes are legible — none leaves unreadable text on a transparent tile.
+- [ ] Styling -> Open as a sidebar: the controls appear as a full-height strip on the right, at the same width as the popup, sitting over whatever window is underneath without resizing it.
+- [ ] The strip stops short of the panel rather than running under it; a dock on the same edge is covered.
+- [ ] Switching to Left edge moves it; the choice only appears while the sidebar is on.
+- [ ] Clicking elsewhere closes the sidebar; the panel button toggles it open and shut.
+- [ ] The Wi-Fi password field accepts typing while the sidebar is open.
+- [ ] Turning the sidebar off returns to the popup above the panel button.
 - [ ] Styling -> Show tile tooltips is off on a fresh config; hovering a tile names nothing. Turning it on brings the names back.
 - [ ] With tooltips off, a `shape = "half"` tile still names itself on hover — it has nowhere else to put its name.
 - [ ] Appearance -> Style: Round makes single-row tiles pill-shaped, Slightly round gives a gentle corner, Square keeps them square. Tall and Wide tiles take the same corner as a single-row one, not a bigger one.

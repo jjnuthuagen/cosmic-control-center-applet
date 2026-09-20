@@ -17,7 +17,7 @@ use cosmic::iced::{Alignment, Length, Limits, Subscription};
 use cosmic::widget::{button, column, container, divider, mouse_area, row, text, text_input};
 use cosmic::{Application, Element};
 
-use crate::config::Config;
+use crate::config::{Config, SidebarSide};
 use crate::fl;
 use crate::modules::{
     battery, bluetooth, brightness, caffeine, custom, dns, gamemode, keyboard, media, network,
@@ -86,6 +86,8 @@ pub enum Message {
     /// view reads the clock itself — but the redraw is the point.
     Tick,
     PopupClosed(Id),
+    /// The sidebar lost keyboard focus — the click-away close.
+    SidebarUnfocused(Id),
     Navigate(Page),
     OpenSettings,
 
@@ -150,10 +152,29 @@ pub enum Message {
     Done,
 }
 
+/// Which Wayland surface the controls are drawn on.
+///
+/// The content is identical; only the shell object differs. Kept beside the
+/// id rather than re-read from config on close, so changing the setting while
+/// the sidebar is open still closes the sidebar rather than a popup that was
+/// never there.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+enum SurfaceKind {
+    /// An xdg popup above the panel button.
+    #[default]
+    Popup,
+    /// A layer surface hugging one edge of the screen.
+    Sidebar,
+}
+
 pub struct App {
     core: Core,
     config: Config,
     popup: Option<Id>,
+    /// Which kind of surface `popup` is. Read when closing: a popup and a
+    /// layer surface are destroyed by different requests, and sending the
+    /// wrong one leaves the surface on screen with nothing driving it.
+    surface: SurfaceKind,
     page: Page,
 
     wifi: network::State,
@@ -185,6 +206,22 @@ pub struct App {
 }
 
 impl App {
+    /// Tear down whichever surface is open.
+    ///
+    /// A popup and a layer surface are different shell objects with different
+    /// destroy requests; sending a popup's request to a layer surface is a
+    /// no-op that leaves the sidebar on screen with nothing driving it.
+    fn destroy_surface(&self, id: Id) -> Task<Message> {
+        match self.surface {
+            SurfaceKind::Popup => {
+                cosmic::iced::platform_specific::shell::commands::popup::destroy_popup(id)
+            }
+            SurfaceKind::Sidebar => {
+                cosmic::iced::platform_specific::shell::commands::layer_surface::destroy_layer_surface(id)
+            }
+        }
+    }
+
     fn spacing(&self) -> Spacing {
         Spacing::from_theme(self.core.system_theme())
     }
@@ -1458,6 +1495,7 @@ impl Application for App {
                 core,
                 config,
                 popup: None,
+                surface: SurfaceKind::default(),
                 page: Page::Root,
                 wifi: network::State::default(),
                 bluetooth: bluetooth::State::default(),
@@ -1494,9 +1532,7 @@ impl Application for App {
             Message::TogglePopup => {
                 if let Some(id) = self.popup.take() {
                     self.wifi.scanning = false;
-                    return cosmic::iced::platform_specific::shell::commands::popup::destroy_popup(
-                        id,
-                    );
+                    return self.destroy_surface(id);
                 }
                 // Always reopen on the root page. Leaving the popup on a
                 // drill-down from last time is disorienting — the panel button
@@ -1525,19 +1561,30 @@ impl Application for App {
 
                 let id = window::Id::unique();
                 self.popup = Some(id);
-                let mut settings = self.core.applet.get_popup_settings(
-                    self.core.main_window_id().unwrap_or(id),
-                    id,
-                    None,
-                    None,
-                    None,
-                );
-                settings.positioner.size_limits = Limits::NONE
-                    .max_width(POPUP_WIDTH)
-                    .min_width(POPUP_WIDTH)
-                    .max_height(POPUP_MAX_HEIGHT);
-                let popup =
-                    cosmic::iced::platform_specific::shell::commands::popup::get_popup(settings);
+                self.surface = if self.config.appearance.sidebar {
+                    SurfaceKind::Sidebar
+                } else {
+                    SurfaceKind::Popup
+                };
+                let popup = match self.surface {
+                    SurfaceKind::Popup => {
+                        let mut settings = self.core.applet.get_popup_settings(
+                            self.core.main_window_id().unwrap_or(id),
+                            id,
+                            None,
+                            None,
+                            None,
+                        );
+                        settings.positioner.size_limits = Limits::NONE
+                            .max_width(POPUP_WIDTH)
+                            .min_width(POPUP_WIDTH)
+                            .max_height(POPUP_MAX_HEIGHT);
+                        cosmic::iced::platform_specific::shell::commands::popup::get_popup(settings)
+                    }
+                    SurfaceKind::Sidebar => {
+                        sidebar_surface(id, self.config.appearance.sidebar_side)
+                    }
+                };
 
                 // Ask for the blur ourselves. libcosmic issues blur only for
                 // surfaces it tracks in `surface_views`, and a popup made with
@@ -1579,6 +1626,16 @@ impl Application for App {
                 }
             }
             Message::Tick => Task::none(),
+            Message::SidebarUnfocused(id) => {
+                // Only the sidebar: a popup is dismissed by the compositor
+                // itself, and acting on its unfocus as well would race that.
+                if self.surface == SurfaceKind::Sidebar && self.popup == Some(id) {
+                    self.popup = None;
+                    self.wifi.scanning = false;
+                    return self.destroy_surface(id);
+                }
+                Task::none()
+            }
             Message::PopupClosed(id) => {
                 if self.popup == Some(id) {
                     self.popup = None;
@@ -1592,9 +1649,7 @@ impl Application for App {
                 // under it, so close it.
                 if let Some(id) = self.popup.take() {
                     self.wifi.scanning = false;
-                    return cosmic::iced::platform_specific::shell::commands::popup::destroy_popup(
-                        id,
-                    );
+                    return self.destroy_surface(id);
                 }
                 Task::none()
             }
@@ -1707,9 +1762,7 @@ impl Application for App {
                 // go to try again.
                 self.page = Page::Root;
                 match self.popup.take() {
-                    Some(id) => {
-                        cosmic::iced::platform_specific::shell::commands::popup::destroy_popup(id)
-                    }
+                    Some(id) => self.destroy_surface(id),
                     None => Task::none(),
                 }
             }
@@ -1840,8 +1893,21 @@ impl Application for App {
     }
 
     fn subscription(&self) -> Subscription<Message> {
-        let mut subscriptions = Vec::with_capacity(15);
+        let mut subscriptions = Vec::with_capacity(16);
         let open = self.popup.is_some();
+
+        // A layer surface is not dismissed for us the way a popup is, so the
+        // sidebar closes itself when focus goes elsewhere. Only subscribed
+        // while it is actually up.
+        if open && self.surface == SurfaceKind::Sidebar {
+            subscriptions.push(cosmic::iced::event::listen_with(|event, _status, id| {
+                matches!(
+                    event,
+                    cosmic::iced::Event::Window(cosmic::iced::window::Event::Unfocused)
+                )
+                .then_some(Message::SidebarUnfocused(id))
+            }));
+        }
 
         // Demo harness hook — inert unless COSMIC_CC_DEMO_TOGGLE is set.
         // See `modules::demo`.
@@ -1982,14 +2048,22 @@ impl Application for App {
             Page::Vpn => self.vpn_page(),
         });
 
-        self.core
-            .applet
-            .popup_container(
-                container(page)
-                    .padding(self.spacing().section)
-                    .width(Length::Fixed(POPUP_WIDTH)),
-            )
-            .into()
+        let body = container(page)
+            .padding(self.spacing().section)
+            .width(Length::Fixed(POPUP_WIDTH));
+
+        match self.surface {
+            // `popup_container` autosizes to its content and caps its own
+            // height, which is exactly right above a panel button and exactly
+            // wrong for a strip that is already the height of the screen: the
+            // card would float in the middle of it.
+            SurfaceKind::Popup => self.core.applet.popup_container(body).into(),
+            SurfaceKind::Sidebar => container(body.height(Length::Fill))
+                .width(Length::Fixed(POPUP_WIDTH))
+                .height(Length::Fill)
+                .class(sidebar_background())
+                .into(),
+        }
     }
 }
 
@@ -1998,6 +2072,70 @@ impl Application for App {
 /// A second process rather than a second surface in this one: an applet is a
 /// layer-shell client, and mixing an ordinary toplevel into the same event loop
 /// is more trouble than spawning the binary again with a flag.
+/// The sidebar's background: the same glass the popup paints, drawn square.
+///
+/// `background(theme.transparent)` is the same question `popup_container`
+/// asks, so the desktop's Glass opacity reaches the strip too. No corner
+/// radius: three of its edges are the screen's, and a rounded corner against a
+/// screen edge reads as a mistake rather than a style.
+fn sidebar_background<'a>() -> cosmic::theme::Container<'a> {
+    cosmic::theme::Container::Custom(Box::new(|theme| {
+        let cosmic = theme.cosmic();
+        let layer = cosmic.background(theme.transparent);
+        cosmic::widget::container::Style {
+            background: Some(cosmic::iced::Background::Color(cosmic::iced::Color::from(
+                layer.base,
+            ))),
+            text_color: Some(layer.on.into()),
+            icon_color: Some(layer.on.into()),
+            ..Default::default()
+        }
+    }))
+}
+
+/// Ask for the sidebar: a full-height strip of [`POPUP_WIDTH`] against one
+/// edge of the screen.
+///
+/// Anchored to the top and bottom as well as its own side, which is what makes
+/// the compositor stretch it to the full height — the height we ask for is
+/// `None` for exactly that reason.
+///
+/// `exclusive_zone: 0` is the whole of "floats over windows, but not over the
+/// panel". Zero means *claim* nothing while *respecting* what others have
+/// claimed, so the compositor keeps the strip clear of the panel's reserved
+/// edge without any measuring on our side, and no window resizes when it
+/// opens. A dock that overlaps rather than reserving has no claim to respect,
+/// so the sidebar covers it — which is the intended trade.
+///
+/// `OnDemand` keyboard interactivity is load-bearing beyond the Wi-Fi password
+/// box: a layer surface is told focus went elsewhere only if it could hold
+/// focus in the first place, and that event is what closes the sidebar when
+/// you click away.
+fn sidebar_surface(id: Id, side: SidebarSide) -> Task<Message> {
+    use cosmic::iced::platform_specific::runtime::wayland::layer_surface::SctkLayerSurfaceSettings;
+    use cosmic::iced::platform_specific::shell::commands::layer_surface::{
+        get_layer_surface, Anchor, KeyboardInteractivity, Layer,
+    };
+
+    let edge = match side {
+        SidebarSide::Left => Anchor::LEFT,
+        SidebarSide::Right => Anchor::RIGHT,
+    };
+
+    get_layer_surface(SctkLayerSurfaceSettings {
+        id,
+        layer: Layer::Top,
+        keyboard_interactivity: KeyboardInteractivity::OnDemand,
+        anchor: edge | Anchor::TOP | Anchor::BOTTOM,
+        namespace: "control-center-sidebar".into(),
+        // Our width; the compositor's height, because of the top/bottom anchor.
+        size: Some((Some(POPUP_WIDTH as u32), None)),
+        exclusive_zone: 0,
+        size_limits: Limits::NONE.min_width(POPUP_WIDTH).max_width(POPUP_WIDTH),
+        ..Default::default()
+    })
+}
+
 fn open_settings_window() {
     let Ok(executable) = std::env::current_exe() else {
         tracing::error!("could not determine our own path; cannot open Settings");

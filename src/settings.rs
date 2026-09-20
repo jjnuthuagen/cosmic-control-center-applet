@@ -309,6 +309,8 @@ pub enum Message {
     SetStyle(TileStyle),
     SetFinish(TileFinish),
     SetTooltips(bool),
+    SetSidebar(bool),
+    SetSidebarSide(crate::config::SidebarSide),
     SetBatteryIndicator(bool),
     SetWifiIndicator(bool),
     SetWifiTimeout(BadgeTimeout),
@@ -735,6 +737,27 @@ impl Settings {
         }
 
         section = section.push(crate::ui::toggle_row(
+            "view-dual-symbolic",
+            fl!("settings-sidebar"),
+            Some(fl!("settings-sidebar-detail")),
+            self.config.appearance.sidebar,
+            Some(Message::SetSidebar(!self.config.appearance.sidebar)),
+            Spacing::from_theme(self.core.system_theme()),
+        ));
+
+        // Only worth asking which edge once there is a strip to put on one.
+        if self.config.appearance.sidebar {
+            for side in crate::config::SidebarSide::ALL {
+                section = section.push(radio(
+                    text::body(crate::i18n::lookup(side.l10n_key(), None)),
+                    side,
+                    Some(self.config.appearance.sidebar_side),
+                    Message::SetSidebarSide,
+                ));
+            }
+        }
+
+        section = section.push(crate::ui::toggle_row(
             "help-about-symbolic",
             fl!("settings-tooltips"),
             Some(fl!("settings-tooltips-detail")),
@@ -1158,6 +1181,14 @@ impl Application for Settings {
             }
             Message::SetTooltips(on) => {
                 self.config.appearance.tooltips = on;
+                self.save();
+            }
+            Message::SetSidebar(on) => {
+                self.config.appearance.sidebar = on;
+                self.save();
+            }
+            Message::SetSidebarSide(side) => {
+                self.config.appearance.sidebar_side = side;
                 self.save();
             }
             Message::SetBatteryIndicator(on) => {
