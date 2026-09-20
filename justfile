@@ -39,17 +39,21 @@ verify: fmt check test
 
 icons-dst := prefix / 'share' / 'icons' / 'hicolor' / 'scalable' / 'apps'
 
+metainfo := appid + '.metainfo.xml'
+metainfo-dst := prefix / 'share' / 'metainfo' / metainfo
+
 install: build
     install -Dm0755 {{bin-src}} {{bin-dst}}
     install -Dm0644 {{desktop-src}} {{desktop-dst}}
     install -Dm0644 {{settings-desktop-src}} {{settings-desktop-dst}}
+    install -Dm0644 data/{{metainfo}} {{metainfo-dst}}
     # hicolor is in every icon theme's inheritance chain, so presets installed
     # here resolve whatever theme the user is on.
     install -Dm0644 -t {{icons-dst}} data/icons/*.svg
     @echo "Installed. Add it in Settings -> Desktop -> Panel -> Configure applets."
 
 uninstall:
-    rm -f {{bin-dst}} {{desktop-dst}} {{settings-desktop-dst}}
+    rm -f {{bin-dst}} {{desktop-dst}} {{settings-desktop-dst}} {{metainfo-dst}}
     rm -f {{icons-dst}}/cosmic-control-center-*.svg
 
 # Applets expect to be launched by cosmic-panel as a layer-shell surface, so
