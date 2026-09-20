@@ -100,7 +100,7 @@ fn preview_frame(
                 let cosmic = theme.cosmic();
                 cosmic::widget::container::Style {
                     border: cosmic::iced::Border {
-                        radius: cosmic.corner_radii.radius_s.into(),
+                        radius: crate::ui::tile_radius(theme).into(),
                         width: 2.0,
                         color: cosmic.accent_color().into(),
                     },
@@ -125,7 +125,7 @@ fn preview_frame(
             edge.alpha = 0.5;
             cosmic::widget::container::Style {
                 border: cosmic::iced::Border {
-                    radius: cosmic.corner_radii.radius_s.into(),
+                    radius: crate::ui::tile_radius(theme).into(),
                     width: 2.0,
                     color: cosmic::iced::Color::from(edge),
                 },
@@ -308,6 +308,7 @@ pub enum Message {
     OpenUrl(String),
     SetStyle(TileStyle),
     SetFinish(TileFinish),
+    SetTooltips(bool),
     SetBatteryIndicator(bool),
     SetWifiIndicator(bool),
     SetWifiTimeout(BadgeTimeout),
@@ -605,7 +606,11 @@ impl Settings {
                 |_| Message::Noop,
                 None,
                 SliderMode::Inert,
-                crate::ui::Look::new(self.config.appearance.finish, spacing),
+                crate::ui::Look::new(
+                    self.config.appearance.finish,
+                    spacing,
+                    self.config.appearance.tooltips,
+                ),
             ),
             TileKey::Brightness => wide_slider_tile(
                 icons::brightness(70.0, false),
@@ -614,7 +619,11 @@ impl Settings {
                 |_| Message::Noop,
                 None,
                 SliderMode::Inert,
-                crate::ui::Look::new(self.config.appearance.finish, spacing),
+                crate::ui::Look::new(
+                    self.config.appearance.finish,
+                    spacing,
+                    self.config.appearance.tooltips,
+                ),
             ),
             TileKey::Microphone => wide_slider_tile(
                 icons::microphone(50.0, false),
@@ -623,7 +632,11 @@ impl Settings {
                 |_| Message::Noop,
                 None,
                 SliderMode::Inert,
-                crate::ui::Look::new(self.config.appearance.finish, spacing),
+                crate::ui::Look::new(
+                    self.config.appearance.finish,
+                    spacing,
+                    self.config.appearance.tooltips,
+                ),
             ),
             other => {
                 let (icon, ftl) = match other {
@@ -720,6 +733,15 @@ impl Settings {
                     ))),
             );
         }
+
+        section = section.push(crate::ui::toggle_row(
+            "help-about-symbolic",
+            fl!("settings-tooltips"),
+            Some(fl!("settings-tooltips-detail")),
+            self.config.appearance.tooltips,
+            Some(Message::SetTooltips(!self.config.appearance.tooltips)),
+            Spacing::from_theme(self.core.system_theme()),
+        ));
 
         section.into()
     }
@@ -1132,6 +1154,10 @@ impl Application for Settings {
             }
             Message::SetFinish(finish) => {
                 self.config.appearance.finish = finish;
+                self.save();
+            }
+            Message::SetTooltips(on) => {
+                self.config.appearance.tooltips = on;
                 self.save();
             }
             Message::SetBatteryIndicator(on) => {

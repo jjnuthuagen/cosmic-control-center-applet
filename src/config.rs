@@ -66,6 +66,13 @@ pub struct Appearance {
     #[serde(default)]
     pub finish: TileFinish,
     pub icon: PanelIcon,
+    /// Whether hovering a tile names it.
+    ///
+    /// Off by default: once the grid is familiar a tooltip under every tile is
+    /// noise. Icon-only (Half) tiles keep theirs regardless — see
+    /// [`crate::ui`] — because there the tooltip is the only copy of the name.
+    #[serde(default)]
+    pub tooltips: bool,
     /// The placed tiles: what is drawn, at what size, and where.
     ///
     /// `[[appearance.layout]]` entries. Empty means "not migrated yet" —
