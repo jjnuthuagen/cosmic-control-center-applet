@@ -170,6 +170,14 @@ custom_providers = [
 #                       Defaults to a generic "runs a program" icon. If the
 #                       name is not in your theme it falls back rather than
 #                       drawing nothing.
+#   status    optional  A command that says whether the thing is currently on,
+#                       as a list like `command`. It is run every few seconds
+#                       while the popup is open, and exit 0 means on — so the
+#                       tile lights up like the built-in toggles. Omit it and
+#                       the tile is a plain launcher, as before. Anything that
+#                       already answers with an exit code works:
+#                       ["systemctl", "--user", "is-active", "-q", "foo"] or
+#                       ["pgrep", "-qx", "foo"].
 #   detail    optional  A second line under the name. Defaults to the name.
 #   confirm   optional  true asks before running it, on a page of its own.
 #                       For the commands you cannot take back — logging out,
@@ -208,6 +216,14 @@ custom_providers = [
 # [[custom]]
 # name = "Lock"
 # command = ["loginctl", "lock-session"]
+#
+# A tile that shows whether something is running, and toggles it:
+#
+# [[custom]]
+# name = "Backups"
+# icon = "drive-multidisk-symbolic"
+# status = ["systemctl", "--user", "is-active", "-q", "restic-backup.timer"]
+# command = ["sh", "-c", "systemctl --user is-active -q restic-backup.timer && systemctl --user stop restic-backup.timer || systemctl --user start restic-backup.timer"]
 #
 # A row of icon-only launchers:
 #

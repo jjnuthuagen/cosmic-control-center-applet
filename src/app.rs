@@ -109,6 +109,8 @@ pub enum Message {
     CycleKeyboard,
     ToggleChargeThreshold,
     RunCustom(usize),
+    /// A round of `status` checks for the custom tiles came back.
+    CustomStatus(custom::Event),
     /// The confirmation page said yes.
     ConfirmedCustom(usize),
 
@@ -194,6 +196,8 @@ pub struct App {
     /// Validated at load so a broken entry is reported once, not silently
     /// drawn as a tile that does nothing.
     custom: Vec<custom::Tile>,
+    /// Which custom tiles their own `status` check reports as active.
+    custom_status: custom::Statuses,
     /// How many networks the Wi-Fi list is currently showing.
     wifi_rows: usize,
     /// When Wi-Fi last dropped, for the panel badge.
@@ -547,6 +551,7 @@ impl App {
                     .style(self.config.appearance.style)
                     .finish(self.config.appearance.finish)
                     .tooltips(self.config.appearance.tooltips)
+                    .active(self.custom_status.is_active(custom))
                     .on_press(Message::RunCustom(custom))
                     .compact(shape == TileShape::Half)
                     .wide(shape == TileShape::Wide)
@@ -1521,6 +1526,7 @@ impl Application for App {
                 vpn: vpn::State::default(),
                 caffeine: caffeine::State::default(),
                 custom,
+                custom_status: custom::Statuses::default(),
                 wifi_rows: WIFI_INITIAL_ROWS,
                 wifi_lost_at: None,
             },
@@ -1566,6 +1572,10 @@ impl Application for App {
                 // or switched-off entry.
                 custom::warn_unusable(&config.custom);
                 self.custom = config.custom.clone();
+                // A reading is addressed by position in `[[custom]]`, and an
+                // added or removed entry renumbers everything after it — so
+                // the old readings would now describe different tiles.
+                self.custom_status.clear();
                 self.config = config;
 
                 let id = window::Id::unique();
@@ -1759,6 +1769,10 @@ impl Application for App {
                 if let Some(entry) = self.custom.get(index).filter(|e| e.is_usable()) {
                     entry.run();
                 }
+                Task::none()
+            }
+            Message::CustomStatus(event) => {
+                self.custom_status.update(event);
                 Task::none()
             }
             Message::ConfirmedCustom(index) => {
@@ -1985,6 +1999,14 @@ impl Application for App {
         // a row inside the Connectivity group.
         if self.wanted(TileKey::Vpn) {
             subscriptions.push(self.vpn.subscription().map(Message::Vpn));
+        }
+
+        // A custom tile's `status` check is somebody's own command, so it only
+        // runs while the popup that displays it is open. Contributes nothing —
+        // and spawns nothing — when no tile has a check.
+        if open {
+            subscriptions
+                .push(custom::Statuses::subscription(&self.custom).map(Message::CustomStatus));
         }
 
         // A badge with a deadline needs something to redraw the panel when the

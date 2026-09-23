@@ -231,6 +231,18 @@ glob-expanded behind your back. If you want a pipeline, ask for one:
 command = ["sh", "-c", "grim - | wl-copy"]
 ```
 
+A launcher has no state, so by default the tile looks the same whatever it
+launches. Give it a `status` command and it lights up like the built-in
+toggles: the check runs every few seconds while the popup is open, and exit 0
+means on. Anything that already answers with an exit code will do.
+
+```toml
+[[custom]]
+name = "Backups"
+status = ["systemctl", "--user", "is-active", "-q", "restic-backup.timer"]
+command = ["sh", "-c", "systemctl --user is-active -q restic-backup.timer && systemctl --user stop restic-backup.timer || systemctl --user start restic-backup.timer"]
+```
+
 Right-click the panel button and open Settings to find these under **Your
 tiles**, each with a switch, and a button that opens the folder holding
 `config.toml`. The shipped [`config.example.toml`](data/config.example.toml)

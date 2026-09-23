@@ -15,8 +15,38 @@
 //!
 //! Anyone who genuinely wants a pipeline can still write
 //! `command = ["sh", "-c", "..."]` and has then chosen that explicitly.
+//!
+//! # Tiles that know whether they are on
+//!
+//! A launcher has no state, so by default one of these tiles draws the same
+//! whatever the thing it launches is doing. An optional `status` argv fixes
+//! that: it is run on a timer while the popup is open and **exit 0 means
+//! active**, which is the convention every service manager already follows
+//! (`systemctl is-active -q …`, `pgrep -q …`). A tile with a check draws lit
+//! like the built-in toggles; one without is unchanged.
+//!
+//! The check is a process, not a bus call, so two rules keep it out of the
+//! way: it runs off the update loop on a blocking thread, and it is killed if
+//! it outstays [`STATUS_TIMEOUT`] rather than being left to pile up once every
+//! poll.
 
+use cosmic::iced::Subscription;
+use futures::stream;
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
+use std::process::Stdio;
+use std::time::{Duration, Instant};
+
+/// How often a tile's `status` check runs while the popup is open.
+///
+/// Slow enough that a check is not a background load, fast enough that the
+/// tile catches up within a glance of something being switched on elsewhere.
+const STATUS_POLL_INTERVAL: Duration = Duration::from_secs(5);
+
+/// A `status` check that has not answered by now is killed and read as
+/// inactive. Without this, one check that hangs leaves a process behind on
+/// every poll for the rest of the session.
+const STATUS_TIMEOUT: Duration = Duration::from_secs(3);
 
 /// One user-defined tile.
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
@@ -30,6 +60,13 @@ pub struct Tile {
     pub icon: String,
     /// Program and its arguments. The first element is the program.
     pub command: Vec<String>,
+    /// Optional check deciding whether the tile draws lit: exit 0 is active.
+    ///
+    /// Same argv shape and the same no-shell rule as `command`. Empty — the
+    /// default — means the tile has no state, which is how every custom tile
+    /// behaved before this existed.
+    #[serde(default)]
+    pub status: Vec<String>,
     /// Optional second line, for whatever the name does not make obvious.
     #[serde(default)]
     pub detail: Option<String>,
@@ -94,6 +131,13 @@ impl Tile {
             .is_some_and(|program| !program.is_empty())
     }
 
+    /// Whether this tile reports a state, and can therefore draw lit.
+    pub fn has_status(&self) -> bool {
+        self.status
+            .first()
+            .is_some_and(|program| !program.is_empty())
+    }
+
     /// Launch it, detached.
     ///
     /// Nothing is awaited: these are user commands that may run for hours, and
@@ -119,6 +163,148 @@ impl Tile {
     }
 }
 
+/// One round of `status` checks, as `(tile index, active)`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Event {
+    pub states: Vec<(usize, bool)>,
+}
+
+/// Which custom tiles are currently reporting themselves active.
+///
+/// Keyed by the tile's index in `[[custom]]`, the same address the grid and the
+/// layout use. Nothing is remembered about a tile with no check.
+#[derive(Debug, Clone, Default)]
+pub struct Statuses {
+    active: HashMap<usize, bool>,
+}
+
+impl Statuses {
+    pub fn update(&mut self, event: Event) {
+        for (index, active) in event.states {
+            self.active.insert(index, active);
+        }
+    }
+
+    /// Whether the tile at `index` should draw lit.
+    ///
+    /// False for a tile with no check, and false for one whose first check has
+    /// not landed yet: a launcher is the safe thing to look like, and a tile
+    /// that starts lit and then goes dark reads as the applet losing something.
+    pub fn is_active(&self, index: usize) -> bool {
+        self.active.get(&index).copied().unwrap_or(false)
+    }
+
+    /// Forget every reading.
+    ///
+    /// Called when the config reloads, because a tile is addressed by its
+    /// position in `[[custom]]`: adding or removing an entry renumbers the
+    /// rest, and a kept reading would then be attached to a different tile.
+    pub fn clear(&mut self) {
+        self.active.clear();
+    }
+
+    /// Poll every tile that has a check.
+    ///
+    /// The commands travel in the subscription's `data`, which is also its
+    /// identity — so editing a check, or adding a tile, restarts the poller
+    /// instead of leaving it running the old set. No checks means no
+    /// subscription and no processes at all.
+    pub fn subscription(tiles: &[Tile]) -> Subscription<Event> {
+        let checks = checks(tiles);
+
+        if checks.is_empty() {
+            return Subscription::none();
+        }
+
+        Subscription::run_with(("custom-status", checks), |(_, checks)| {
+            let checks = checks.clone();
+            stream::unfold((checks, true), |(checks, first)| async move {
+                // No wait before the first round, or a tile that is on shows as
+                // off for the first few seconds the popup is open.
+                if !first {
+                    tokio::time::sleep(STATUS_POLL_INTERVAL).await;
+                }
+                let mut states = Vec::with_capacity(checks.len());
+                for (index, argv) in &checks {
+                    states.push((*index, check(argv.clone()).await));
+                }
+                Some((Event { states }, (checks, false)))
+            })
+        })
+    }
+}
+
+/// The checks to run, as `(tile index, argv)`.
+///
+/// Only tiles that are actually drawn: running the check for one that is
+/// switched off, or whose command is broken, would be work for a tile nobody
+/// can see.
+fn checks(tiles: &[Tile]) -> Vec<(usize, Vec<String>)> {
+    tiles
+        .iter()
+        .enumerate()
+        .filter(|(_, tile)| tile.is_usable() && tile.has_status())
+        .map(|(index, tile)| (index, tile.status.clone()))
+        .collect()
+}
+
+/// Run one check without blocking the update loop.
+async fn check(argv: Vec<String>) -> bool {
+    tokio::task::spawn_blocking(move || check_now(&argv))
+        .await
+        .unwrap_or_else(|err| {
+            tracing::debug!("status check did not run: {err}");
+            false
+        })
+}
+
+/// Run one check and answer its exit status: 0 is active.
+///
+/// Output is discarded — this is a yes/no question — and a check that outstays
+/// [`STATUS_TIMEOUT`] is killed and read as inactive.
+fn check_now(argv: &[String]) -> bool {
+    let Some((program, arguments)) = argv.split_first() else {
+        return false;
+    };
+
+    // Host shim, for the same reason as `Tile::run`: from inside a Flatpak
+    // sandbox the user's own tools are only reachable via flatpak-spawn.
+    let mut command = crate::process::host_command(program);
+    command
+        .args(arguments)
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null());
+
+    let mut child = match command.spawn() {
+        Ok(child) => child,
+        Err(err) => {
+            tracing::debug!("status check `{program}` did not start: {err}");
+            return false;
+        }
+    };
+
+    let deadline = Instant::now() + STATUS_TIMEOUT;
+    loop {
+        match child.try_wait() {
+            Ok(Some(status)) => return status.success(),
+            Ok(None) => {
+                if Instant::now() >= deadline {
+                    tracing::warn!("status check `{program}` timed out; treating it as inactive");
+                    let _ = child.kill();
+                    let _ = child.wait();
+                    return false;
+                }
+                std::thread::sleep(Duration::from_millis(25));
+            }
+            Err(err) => {
+                tracing::debug!("status check `{program}` could not be waited on: {err}");
+                return false;
+            }
+        }
+    }
+}
+
 /// The launchers a fresh install starts with.
 ///
 /// Icon-only, so they read as a strip of buttons under the controls rather
@@ -140,6 +326,7 @@ pub fn default_launchers() -> Vec<Tile> {
         name: name.to_string(),
         icon: icon.to_string(),
         command: command.iter().map(|s| s.to_string()).collect(),
+        status: Vec::new(),
         detail: detail.map(str::to_string),
         shape: TileShape::Half,
         confirm: false,
@@ -345,6 +532,7 @@ mod tests {
             name: name.to_string(),
             icon: default_icon(),
             command: command.into_iter().map(str::to_string).collect(),
+            status: Vec::new(),
             detail: None,
             shape: default_shape(),
             confirm: false,
@@ -562,6 +750,93 @@ mod tests {
         let decoded: Tile = toml::from_str("name = \"Thing\"\ncommand = [\"true\"]\n").unwrap();
         assert!(decoded.enabled);
         assert_eq!(usable(&[decoded]).len(), 1);
+    }
+
+    #[test]
+    fn a_tile_without_a_check_is_a_plain_launcher() {
+        // A config written before `status` existed must keep drawing exactly as
+        // it did: no check, never lit.
+        let older: Tile = toml::from_str("name = \"X\"\ncommand = [\"true\"]\n").unwrap();
+        assert!(older.status.is_empty());
+        assert!(!older.has_status());
+
+        let checked: Tile = toml::from_str(
+            "name = \"X\"\ncommand = [\"true\"]\nstatus = [\"systemctl\", \"is-active\"]\n",
+        )
+        .unwrap();
+        assert!(checked.has_status());
+        // Round-trips, or the Settings window would drop the check on save.
+        assert_eq!(
+            toml::from_str::<Tile>(&toml::to_string(&checked).unwrap()).unwrap(),
+            checked
+        );
+    }
+
+    #[test]
+    fn exit_zero_is_active_and_anything_else_is_not() {
+        // The whole convention: `systemctl is-active -q`, `pgrep -q` and every
+        // other check already answer this way.
+        assert!(check_now(&["true".to_string()]));
+        assert!(!check_now(&["false".to_string()]));
+        // A check that cannot even start is not a reason to claim the thing is
+        // on.
+        assert!(!check_now(&[
+            "definitely-not-a-real-program-xyzzy".to_string()
+        ]));
+        assert!(!check_now(&[]));
+    }
+
+    #[test]
+    fn a_check_that_hangs_is_killed_rather_than_run_again_next_poll() {
+        // This runs every few seconds for the whole session. One check that
+        // never returns would otherwise leave a process behind on every poll.
+        let started = Instant::now();
+        let active = check_now(&["sleep".to_string(), "600".to_string()]);
+        let waited = started.elapsed();
+
+        assert!(!active, "a check that never answered was read as active");
+        assert!(
+            waited < STATUS_TIMEOUT * 2,
+            "waited {waited:?}, which is past the timeout"
+        );
+    }
+
+    #[test]
+    fn a_tile_is_dark_until_its_check_says_otherwise() {
+        // A tile that starts lit and then goes dark reads as the applet losing
+        // something, so an unknown state draws like the launcher it is.
+        let mut statuses = Statuses::default();
+        assert!(!statuses.is_active(0));
+
+        statuses.update(Event {
+            states: vec![(0, true), (1, false)],
+        });
+        assert!(statuses.is_active(0));
+        assert!(!statuses.is_active(1));
+
+        // Indices are positions in `[[custom]]`; after a reload they may address
+        // different tiles, so nothing is carried over.
+        statuses.clear();
+        assert!(!statuses.is_active(0));
+    }
+
+    #[test]
+    fn only_the_tiles_that_are_drawn_and_have_a_check_are_polled() {
+        let plain = tile("Plain", vec!["true"]);
+
+        let mut checked = tile("Checked", vec!["true"]);
+        checked.status = vec!["true".to_string()];
+
+        let mut switched_off = checked.clone();
+        switched_off.enabled = false;
+
+        let tiles = vec![plain, checked, switched_off];
+        // Indices are positions in `[[custom]]`, so the gap matters: the third
+        // tile has a check and is still not polled.
+        assert_eq!(checks(&tiles), vec![(1, vec!["true".to_string()])]);
+
+        // No check anywhere means no processes at all.
+        assert!(checks(&[tile("Plain", vec!["true"])]).is_empty());
     }
 
     #[test]
