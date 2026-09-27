@@ -1629,6 +1629,37 @@ impl Application for App {
                 // Gated on the same question libcosmic would have asked, so
                 // turning frosted styling off in Settings still turns it off
                 // here.
+                let mut tasks = vec![popup];
+
+                // Ask the compositor to clip the surface to the popup's
+                // corner radius. `popup_container` only *paints* a rounded
+                // background — anything drawn to the surface's true corners
+                // (the blur region above being the visible one) stays square
+                // without this. libcosmic sends it for the surfaces it
+                // tracks; a popup made with `get_popup` is not one of those,
+                // same story as the blur below. The radius is the same
+                // `radius_m` `popup_container` paints, so paint and clip
+                // agree. Unknown ids park in `pending_corner_radius` and
+                // apply when the surface is created, so batching with the
+                // popup request is safe.
+                //
+                // Popup only: the sidebar is deliberately square — three of
+                // its edges are the screen's.
+                if self.surface == SurfaceKind::Popup {
+                    let radius = self.core.system_theme().cosmic().corner_radii.radius_m;
+                    let corners =
+                        cosmic::iced::platform_specific::shell::commands::corner_radius::corner_radius(
+                            id,
+                            Some(cosmic::iced::platform_specific::runtime::wayland::CornerRadius {
+                                top_left: radius[0].round() as u32,
+                                top_right: radius[1].round() as u32,
+                                bottom_right: radius[2].round() as u32,
+                                bottom_left: radius[3].round() as u32,
+                            }),
+                        );
+                    tasks.push(corners.discard());
+                }
+
                 if self.core.frosted(self.core.system_theme().cosmic()) {
                     let blur = cosmic::iced::platform_specific::shell::commands::blur::blur(
                         id,
@@ -1639,10 +1670,9 @@ impl Application for App {
                             height: f32::MAX,
                         }]),
                     );
-                    Task::batch([popup, blur.discard()])
-                } else {
-                    popup
+                    tasks.push(blur.discard());
                 }
+                Task::batch(tasks)
             }
             Message::Tick => Task::none(),
             Message::SidebarUnfocused(id) => {

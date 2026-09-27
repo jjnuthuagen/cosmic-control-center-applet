@@ -26,7 +26,9 @@ wifi-off = Off
 wifi-disconnected = Not connected
 wifi-connected = Connected
 wifi-airplane = Airplane mode
-wifi-hardware-off = Blocked by hardware switch
+# Short on purpose: this is a tile's state line, and it has to survive at
+# roughly fourteen characters without being cut.
+wifi-hardware-off = Hardware off
 airplane-mode = Airplane mode
 visible-networks = Visible networks
 no-networks = No networks found
@@ -115,7 +117,9 @@ vpn-add-in-settings = Add or edit VPN connections in Settings.
 # -- Other toggles ------------------------------------------------------------
 do-not-disturb = Do Not Disturb
 keep-awake = Keep Awake
-keep-awake-held = Kept awake by { $who }
+# "Held by" rather than "Kept awake by": the extra words were spent before
+# the tile got to the name, which is the part worth reading.
+keep-awake-held = Held by { $who }
 charge-limit = Limit charging
 charge-limit-detail = Stops charging before full, to make the battery last longer.
 

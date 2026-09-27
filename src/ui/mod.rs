@@ -1137,6 +1137,13 @@ pub fn scrollable_page<'a, Msg: 'a>(content: Element<'a, Msg>) -> Element<'a, Ms
 
 /// Shorten `text` to `max` characters, appending an ellipsis.
 ///
+/// Cuts at a word boundary when one is in reach: "Phone can start sessions"
+/// becomes "Phone can…", not "Phone can sta…" — a cut mid-word reads as a
+/// glitch, a cut between words reads as a summary. Only when backing up to
+/// the last space would throw away more than half the room (one long word,
+/// an SSID with no spaces) does it cut mid-word, because "Phone…" alone
+/// says less than "Phone can sta…" would have.
+///
 /// Counts characters rather than bytes so a multi-byte SSID is not cut mid-
 /// codepoint, which would panic on the slice.
 fn truncate(text: &str, max: usize) -> String {
@@ -1145,7 +1152,17 @@ fn truncate(text: &str, max: usize) -> String {
     }
     // Leave room for the ellipsis so the result is never wider than `max`.
     let keep = max.saturating_sub(1);
-    text.chars().take(keep).collect::<String>() + "…"
+    let cut: String = text.chars().take(keep).collect();
+
+    // Back up to the last word boundary, unless that costs too much.
+    let trimmed = cut.trim_end();
+    if let Some(space) = trimmed.rfind(char::is_whitespace) {
+        let at_boundary = trimmed[..space].trim_end();
+        if at_boundary.chars().count() * 2 >= keep {
+            return at_boundary.to_string() + "…";
+        }
+    }
+    cut + "…"
 }
 
 #[cfg(test)]
@@ -1497,6 +1514,24 @@ mod tests {
         let out = truncate("BT-HomeHub-2.4GHz-Extended", 14);
         assert_eq!(out.chars().count(), 14);
         assert!(out.ends_with('…'));
+    }
+
+    #[test]
+    fn a_cut_lands_between_words_when_one_is_in_reach() {
+        // The bug this pins: a custom tile's "Phone can start sessions" came
+        // out as "Phone can sta…", which reads as a glitch rather than a
+        // summary. The cut backs up to the last word boundary instead.
+        assert_eq!(truncate("Phone can start sessions", 14), "Phone can…");
+
+        // One long word offers no boundary worth keeping — cut mid-word
+        // rather than show nothing.
+        let out = truncate("Supercalifragilistic", 14);
+        assert_eq!(out.chars().count(), 14);
+        assert!(out.ends_with('…'));
+
+        // And a boundary that throws away more than half the room is not
+        // taken: "Hi…" says less than the mid-word cut does.
+        assert_eq!(truncate("Hi Supercalifragilistic", 14), "Hi Supercalif…");
     }
 
     #[test]
