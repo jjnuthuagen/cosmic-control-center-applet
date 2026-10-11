@@ -1,7 +1,7 @@
 [Desktop Entry]
 Name=Control Center Settings
 Comment=Choose what appears in the Control Center applet
-Exec=cosmic-control-center-applet --settings
+Exec=cosmic-ext-control-center-applet --settings
 Icon=io.github.jjnuthuagen.ControlCenter
 Terminal=false
 Type=Application

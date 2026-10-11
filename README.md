@@ -284,7 +284,7 @@ usually means missing hardware or a daemon that is not running. To find out
 which:
 
 ```sh
-cosmic-control-center-applet --check
+cosmic-ext-control-center-applet --check
 ```
 
 It probes every backend and prints what it found. Please include its output in
@@ -294,7 +294,7 @@ Icons are chosen from state and resolved against your active icon theme, falling
 back when a theme is missing a name. To see what your theme actually gives you:
 
 ```sh
-cosmic-control-center-applet --icons
+cosmic-ext-control-center-applet --icons
 ```
 
 Anything listed as `image-missing-symbolic`, or the same name for two states that

@@ -19,7 +19,20 @@ directory.
   ```sh
   curl -sfLO https://raw.githubusercontent.com/flatpak/flatpak-builder-tools/master/cargo/flatpak-cargo-generator.py
   uv run --with aiohttp --with toml python flatpak-cargo-generator.py ../Cargo.lock -o cargo-sources.json
+  python3 patch-duplicate-git-sources.py
   ```
+
+  **The second command is not optional.** The generator names each
+  `[source.*]` section after the git URL alone, so a repository that appears
+  in `Cargo.lock` under two specs loses one of them. libcosmic is pulled in
+  both as `?rev=<sha>` (by this crate) and bare (by cosmic-panel's
+  `cosmic-config`), and cargo treats those as two separate sources — the
+  unreplaced one gets fetched from the network and the offline build fails
+  with `can't checkout from 'https://github.com/pop-os/libcosmic': you are in
+  the offline mode`. That is what broke the first COSMIC Store submission.
+  `patch-duplicate-git-sources.py` diffs the generated config against
+  `Cargo.lock` and adds whatever is missing; it is idempotent and prints
+  nothing to do when the file is already complete.
 
 ## Test build
 

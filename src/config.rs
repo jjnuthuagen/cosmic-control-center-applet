@@ -400,6 +400,20 @@ impl Config {
     pub fn path() -> Option<PathBuf> {
         Some(
             dirs::config_dir()?
+                .join("cosmic-ext-control-center-applet")
+                .join("config.toml"),
+        )
+    }
+
+    /// Where the config lived before the crate was renamed to `cosmic-ext-*`.
+    ///
+    /// The COSMIC Store only accepts third-party applets under the `cosmic-ext`
+    /// prefix, and the rename moved the config directory with the binary. Read
+    /// the old location when the new one is absent so an existing tile layout
+    /// survives the upgrade instead of silently resetting to defaults.
+    pub fn legacy_path() -> Option<PathBuf> {
+        Some(
+            dirs::config_dir()?
                 .join("cosmic-control-center-applet")
                 .join("config.toml"),
         )
@@ -416,7 +430,18 @@ impl Config {
             return Self::default();
         };
 
-        let raw = match std::fs::read_to_string(&path) {
+        let read = std::fs::read_to_string(&path).or_else(|err| {
+            if err.kind() == std::io::ErrorKind::NotFound {
+                match Self::legacy_path() {
+                    Some(legacy) => std::fs::read_to_string(legacy),
+                    None => Err(err),
+                }
+            } else {
+                Err(err)
+            }
+        });
+
+        let raw = match read {
             Ok(raw) => raw,
             // First run. The shipped launchers are offered here and nowhere
             // else: injecting them whenever `custom` happens to be empty would

@@ -1,4 +1,4 @@
-pkgbase = cosmic-control-center-applet
+pkgbase = cosmic-ext-control-center-applet
 	pkgdesc = A COSMIC panel applet for Wi-Fi, Bluetooth, power profiles, DNS, volume and brightness
 	pkgver = 0.2.0
 	pkgrel = 1
@@ -19,7 +19,7 @@ pkgbase = cosmic-control-center-applet
 	optdepends = upower: battery percentage
 	optdepends = wireplumber: volume slider
 	optdepends = libpulse: volume slider fallback via pactl
-	source = cosmic-control-center-applet-0.1.6.tar.gz::https://github.com/jjnuthuagen/cosmic-control-center-applet/archive/refs/tags/v0.1.6.tar.gz
+	source = cosmic-ext-control-center-applet-0.1.6.tar.gz::https://github.com/jjnuthuagen/cosmic-control-center-applet/archive/refs/tags/v0.1.6.tar.gz
 	sha256sums = 039481acdb069647e3666e8006cc624d3264c1753f1e5cc06b71e462e015cf67
 
-pkgname = cosmic-control-center-applet
+pkgname = cosmic-ext-control-center-applet

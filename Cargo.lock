@@ -964,7 +964,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "cosmic-control-center-applet"
+name = "cosmic-ext-control-center-applet"
 version = "0.2.1"
 dependencies = [
  "dirs",

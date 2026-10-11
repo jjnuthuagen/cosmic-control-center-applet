@@ -1,7 +1,7 @@
 [Desktop Entry]
 Name=Control Center
 Comment=Wi-Fi, Bluetooth, power profiles, DNS, volume and brightness
-Exec=cosmic-control-center-applet
+Exec=cosmic-ext-control-center-applet
 Icon=io.github.jjnuthuagen.ControlCenter
 Terminal=false
 Type=Application

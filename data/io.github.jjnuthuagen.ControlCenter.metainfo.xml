@@ -58,7 +58,7 @@
   <provides>
     <id>com.system76.CosmicApplet</id>
     <binaries>
-      <binary>cosmic-control-center-applet</binary>
+      <binary>cosmic-ext-control-center-applet</binary>
     </binaries>
   </provides>
   <categories>

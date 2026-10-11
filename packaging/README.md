@@ -22,7 +22,7 @@ Notes for whoever maintains this:
   check at all.
 - `check()` runs the test suite. Every test is hermetic (nothing touches D-Bus,
   sysfs or the network), so it is safe in a clean chroot. Verifying the real
-  machine is what `cosmic-control-center-applet --check` is for, after install.
+  machine is what `cosmic-ext-control-center-applet --check` is for, after install.
 
 Publishing needs an AUR account, an SSH key registered with it, and:
 

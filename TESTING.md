@@ -5,7 +5,7 @@ Three layers, in the order you should use them.
 ## 1. `--check` — does this machine's hardware work?
 
 ```sh
-cosmic-control-center-applet --check
+cosmic-ext-control-center-applet --check
 ```
 
 Probes every backend through the same read paths the applet uses and prints what
@@ -226,7 +226,7 @@ Needs a saved VPN profile; the tile hides without one.
 ### Quick toggles
 - [ ] Dark mode switches the whole desktop, **and keeps switching on repeated presses**.
 - [ ] Tiling actually retiles the **current** workspace, not just future ones.
-- [ ] `cosmic-control-center-applet --toggle-tiling` flips it from a terminal and prints the new state.
+- [ ] `cosmic-ext-control-center-applet --toggle-tiling` flips it from a terminal and prints the new state.
 
 ### Icons
 Icons are chosen from state and resolved against the active theme, so this is
@@ -243,7 +243,7 @@ worth a pass in more than one icon theme.
 quick version of the above:
 
 ```sh
-cosmic-control-center-applet --icons
+cosmic-ext-control-center-applet --icons
 ```
 
 Note that searching the filesystem for an icon name is **not** a valid check —

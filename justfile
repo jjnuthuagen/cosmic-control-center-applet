@@ -1,4 +1,4 @@
-name := 'cosmic-control-center-applet'
+name := 'cosmic-ext-control-center-applet'
 appid := 'io.github.jjnuthuagen.ControlCenter'
 
 # User-local install by default. For system-wide: `just prefix=/usr install`.
