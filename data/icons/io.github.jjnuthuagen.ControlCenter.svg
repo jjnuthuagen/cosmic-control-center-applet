@@ -1,4 +1,5 @@
 <?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="128" height="128" viewBox="0 0 128 128">
 <!--
   The application icon: the same two switches as the symbolic panel glyph, set
   on a rounded square.
@@ -12,7 +13,6 @@
   Drawn at 128 with a 24-unit corner radius, matching the squircle proportions
   COSMIC's own app icons use, so it does not sit oddly beside them.
 -->
-<svg xmlns="http://www.w3.org/2000/svg" width="128" height="128" viewBox="0 0 128 128">
   <defs>
     <linearGradient id="ground" x1="0" y1="0" x2="0" y2="1">
       <stop offset="0" stop-color="#4a5b78"/>
